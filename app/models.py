@@ -1,0 +1,109 @@
+from datetime import datetime
+from enum import Enum
+
+from flask_login import UserMixin
+from sqlalchemy import CheckConstraint, Enum as SqlEnum
+
+from . import db, login_manager
+
+
+class Role(str, Enum):
+    PLAYER = "player"
+    MERCHANT = "merchant"
+    ADMIN = "admin"
+
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    google_id = db.Column(db.String(255), unique=True, nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    balance = db.Column(db.Float, default=0.0, nullable=False)
+    role = db.Column(SqlEnum(Role), default=Role.PLAYER, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    transactions = db.relationship("Transaction", backref="user", lazy=True)
+
+    def get_id(self):
+        return str(self.id)
+
+    @property
+    def is_admin(self):
+        return self.role == Role.ADMIN
+
+    @property
+    def is_merchant(self):
+        return self.role in {Role.MERCHANT, Role.ADMIN}
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    counterparty_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    type = db.Column(db.String(50), nullable=False, default="game")
+
+    counterparty = db.relationship("User", foreign_keys=[counterparty_id], lazy=True)
+
+
+class Product(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    price = db.Column(db.Float, nullable=False)
+    stock = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    price_history = db.relationship("PriceHistory", backref="product", lazy=True)
+
+    __table_args__ = (CheckConstraint("price >= 0"), CheckConstraint("stock >= 0"),)
+
+
+class PriceHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id"), nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class QueueEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship("User", lazy=True)
+
+    __table_args__ = (db.UniqueConstraint("user_id", name="uq_queue_user"),)
+
+
+class PrisonersMatch(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    player1_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    player2_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    player1_choice = db.Column(db.String(20), nullable=True)
+    player2_choice = db.Column(db.String(20), nullable=True)
+    status = db.Column(db.String(20), default="waiting", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+    player1 = db.relationship("User", foreign_keys=[player1_id])
+    player2 = db.relationship("User", foreign_keys=[player2_id])
+
+    def is_participant(self, user):
+        return user.id in {self.player1_id, self.player2_id}
+
+    def record_choice(self, user, choice):
+        if user.id == self.player1_id:
+            self.player1_choice = choice
+        elif user.id == self.player2_id:
+            self.player2_choice = choice
+
+    def both_choices_made(self):
+        return self.player1_choice is not None and self.player2_choice is not None
