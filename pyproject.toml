@@ -1,0 +1,24 @@
+[project]
+name = "invisible-hand"
+version = "0.1.0"
+description = "Flask arcade prototype with Google OAuth, minigames, and merchant/admin dashboards"
+readme = "README.md"
+authors = [
+  { name = "Invisible Hand Team" }
+]
+requires-python = ">=3.10"
+dependencies = [
+  "Flask==2.3.2",
+  "Flask-Login==0.6.2",
+  "Flask-SQLAlchemy==3.0.5",
+  "Authlib==1.2.1",
+  "qrcode==7.4.2",
+  "Pillow==10.0.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = false

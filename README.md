@@ -19,12 +19,11 @@ A prototype web application for running a social-hour marketplace with dynamical
 - Python 3.10+
 - Google Cloud OAuth 2.0 credentials (web application)
 
-Install dependencies:
+Install dependencies with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-python -m venv .venv
+uv sync
 source .venv/bin/activate
-pip install -r requirements.txt
 ```
 
 ### Configuration
