@@ -207,6 +207,126 @@ button.danger:hover {
   font-size: 0.75rem;
 }
 
+.derivatives-toggle {
+  margin-top: 0.5rem;
+  width: 100%;
+  font-size: 0.7rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.derivatives-toggle.active {
+  background: var(--accent);
+  color: #001217;
+}
+
+.derivatives-row td {
+  background: rgba(15, 22, 29, 0.8);
+  border-bottom: none;
+}
+
+.derivatives-panel {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  padding-top: 1rem;
+}
+
+.derivative-group h4 {
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+}
+
+.derivative-group .muted {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.derivative-quote form {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.derivative-quote .field label {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 0.3rem;
+}
+
+.derivative-quote .field input,
+.derivative-quote .field select {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  background: #0f161d;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  border-radius: 4px;
+}
+
+.derivative-quote .quote-button {
+  justify-self: start;
+  font-size: 0.7rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.derivative-quote .quote-result {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0.6rem;
+  border-radius: 6px;
+  background: rgba(26, 255, 213, 0.05);
+}
+
+.derivative-quote .quote-output {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.derivative-quote .quote-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.derivative-quote .quote-actions button {
+  flex: 1;
+  font-size: 0.7rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.derivative-quote .quote-error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.derivative-holdings {
+  margin-top: 1rem;
+}
+
+.derivative-holdings h5 {
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.derivative-holdings ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.derivative-holdings li {
+  font-size: 0.8rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.derivative-holdings li:last-child {
+  border-bottom: none;
+}
+
 .mono {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;

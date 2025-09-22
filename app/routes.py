@@ -1,6 +1,7 @@
 import base64
 import io
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 
 import qrcode
 from flask import (
@@ -110,49 +111,29 @@ def securities_hub():
         holding.security_symbol: holding
         for holding in SecurityHolding.query.filter_by(user_id=current_user.id).all()
     }
-    option_positions = {
-        holding.listing_id: holding
-        for holding in OptionHolding.query.filter_by(user_id=current_user.id).all()
-    }
-    future_positions = {
-        holding.listing_id: holding
-        for holding in FutureHolding.query.filter_by(user_id=current_user.id).all()
-    }
 
-    active_options = (
-        OptionListing.query.filter(OptionListing.expiration > datetime.utcnow())
-        .order_by(OptionListing.security_symbol.asc(), OptionListing.expiration.asc())
-        .all()
-    )
-    option_quotes = [
-        {
-            "listing": listing,
-            "premium": simulator.price_option(listing),
-            "holding": option_positions.get(listing.id),
-        }
-        for listing in active_options
-    ]
+    option_positions: defaultdict[str, list[OptionHolding]] = defaultdict(list)
+    future_positions: defaultdict[str, list[FutureHolding]] = defaultdict(list)
+    now = datetime.utcnow()
 
-    active_futures = (
-        FutureListing.query.filter(FutureListing.delivery_date > datetime.utcnow())
-        .order_by(FutureListing.security_symbol.asc(), FutureListing.delivery_date.asc())
-        .all()
-    )
-    future_quotes = [
-        {
-            "listing": listing,
-            "forward": simulator.price_future(listing),
-            "holding": future_positions.get(listing.id),
-        }
-        for listing in active_futures
-    ]
+    for holding in OptionHolding.query.filter_by(user_id=current_user.id).all():
+        listing = holding.listing
+        if not listing or listing.expiration <= now:
+            continue
+        option_positions[listing.security_symbol].append(holding)
+
+    for holding in FutureHolding.query.filter_by(user_id=current_user.id).all():
+        listing = holding.listing
+        if not listing or listing.delivery_date <= now:
+            continue
+        future_positions[listing.security_symbol].append(holding)
 
     return render_template(
         "securities.html",
         securities=securities,
         security_positions=security_positions,
-        option_quotes=option_quotes,
-        future_quotes=future_quotes,
+        option_positions=dict(option_positions),
+        future_positions=dict(future_positions),
         update_interval=simulator.interval,
         risk_free_rate=simulator.risk_free_rate,
     )
@@ -184,6 +165,130 @@ def securities_snapshot():
             }
         )
     return jsonify(payload)
+
+
+@bp.route("/api/options/quote", methods=["POST"])
+@login_required
+def quote_option():
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get("symbol") or "").strip().upper()
+    option_type_raw = (data.get("option_type") or "").strip().lower()
+    strike_value = data.get("strike")
+    expiry_minutes_value = data.get("expiry_minutes", 30)
+
+    if not symbol:
+        return jsonify({"error": "Symbol is required."}), 400
+
+    try:
+        option_type = OptionType(option_type_raw)
+    except ValueError:
+        return jsonify({"error": "Invalid option type."}), 400
+
+    try:
+        strike = round(float(strike_value), 2)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Strike must be a number."}), 400
+    if strike <= 0:
+        return jsonify({"error": "Strike must be positive."}), 400
+
+    try:
+        expiry_minutes = int(expiry_minutes_value)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Expiry must be an integer number of minutes."}), 400
+    if not 1 <= expiry_minutes <= 60:
+        return jsonify({"error": "Expiry must be between 1 and 60 minutes."}), 400
+
+    security = Security.query.get(symbol)
+    if not security:
+        return jsonify({"error": "Security not found."}), 404
+
+    now = datetime.utcnow()
+    expiration = (now + timedelta(minutes=expiry_minutes)).replace(second=0, microsecond=0)
+    if expiration <= now:
+        return jsonify({"error": "Expiry must be in the future."}), 400
+
+    listing = OptionListing.query.filter_by(
+        security_symbol=symbol,
+        option_type=option_type,
+        strike=strike,
+        expiration=expiration,
+    ).first()
+    if not listing:
+        listing = OptionListing(
+            security_symbol=symbol,
+            option_type=option_type,
+            strike=strike,
+            expiration=expiration,
+        )
+        db.session.add(listing)
+        db.session.commit()
+
+    simulator = get_simulator()
+    premium = simulator.price_option(listing)
+    holding = OptionHolding.query.filter_by(user_id=current_user.id, listing_id=listing.id).first()
+
+    return jsonify(
+        {
+            "listing_id": listing.id,
+            "symbol": symbol,
+            "option_type": option_type.value,
+            "strike": listing.strike,
+            "expiration": listing.expiration.isoformat(),
+            "premium": premium,
+            "holding_quantity": holding.quantity if holding else 0,
+            "holding_average": holding.average_premium if holding else 0.0,
+        }
+    )
+
+
+@bp.route("/api/futures/quote", methods=["POST"])
+@login_required
+def quote_future():
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get("symbol") or "").strip().upper()
+    delivery_minutes_value = data.get("delivery_minutes", 30)
+
+    if not symbol:
+        return jsonify({"error": "Symbol is required."}), 400
+
+    try:
+        delivery_minutes = int(delivery_minutes_value)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Delivery must be an integer number of minutes."}), 400
+    if not 1 <= delivery_minutes <= 60:
+        return jsonify({"error": "Delivery must be between 1 and 60 minutes."}), 400
+
+    security = Security.query.get(symbol)
+    if not security:
+        return jsonify({"error": "Security not found."}), 404
+
+    now = datetime.utcnow()
+    delivery_date = (now + timedelta(minutes=delivery_minutes)).replace(second=0, microsecond=0)
+    if delivery_date <= now:
+        return jsonify({"error": "Delivery must be in the future."}), 400
+
+    listing = FutureListing.query.filter_by(
+        security_symbol=symbol, delivery_date=delivery_date
+    ).first()
+    if not listing:
+        listing = FutureListing(security_symbol=symbol, delivery_date=delivery_date)
+        db.session.add(listing)
+        db.session.commit()
+
+    simulator = get_simulator()
+    forward_price = simulator.price_future(listing)
+    holding = FutureHolding.query.filter_by(user_id=current_user.id, listing_id=listing.id).first()
+
+    return jsonify(
+        {
+            "listing_id": listing.id,
+            "symbol": symbol,
+            "delivery": listing.delivery_date.isoformat(),
+            "forward": forward_price,
+            "holding_quantity": holding.quantity if holding else 0,
+            "entry_price": holding.entry_price if holding else 0.0,
+        }
+    )
 
 
 @bp.route("/securities/trade", methods=["POST"])

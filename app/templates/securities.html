@@ -20,7 +20,7 @@
       <tbody>
         {% for security in securities %}
           {% set position = security_positions.get(security.symbol) %}
-          <tr data-symbol="{{ security.symbol }}">
+          <tr class="primary-row" data-symbol="{{ security.symbol }}" data-last-price="{{ '%.2f'|format(security.last_price) }}">
             <td class="mono">{{ security.symbol }}</td>
             <td>{{ security.name }}</td>
             <td class="mono price">{{ '%.2f'|format(security.last_price) }}</td>
@@ -41,98 +41,117 @@
                 <button type="submit" name="side" value="buy">Buy</button>
                 <button type="submit" name="side" value="sell">Sell</button>
               </form>
+              <button type="button" class="derivatives-toggle">Derivatives</button>
             </td>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </article>
+          <tr class="derivatives-row" data-symbol="{{ security.symbol }}" hidden>
+            <td colspan="7">
+              <div class="derivatives-panel">
+                <div class="derivative-group">
+                  <h4>Options</h4>
+                  <p class="muted">Describe the contract you want and request a premium on demand (risk-free rate {{ '%.2f'|format(risk_free_rate * 100) }}%).</p>
+                  <div class="derivative-quote options-quote" data-symbol="{{ security.symbol }}">
+                    <form class="option-quote-form">
+                      <input type="hidden" name="symbol" value="{{ security.symbol }}">
+                      <div class="field">
+                        <label>Type</label>
+                        <select name="option_type">
+                          <option value="call">Call</option>
+                          <option value="put">Put</option>
+                        </select>
+                      </div>
+                      <div class="field">
+                        <label>Strike</label>
+                        <input name="strike" type="number" step="0.01" value="{{ '%.2f'|format(security.last_price) }}" class="option-strike" data-sync="true">
+                      </div>
+                      <div class="field">
+                        <label>Expiry (minutes)</label>
+                        <input name="expiry_minutes" type="number" min="1" max="60" value="30">
+                      </div>
+                      <div class="field">
+                        <label>Contracts</label>
+                        <input name="quantity" type="number" min="1" step="1" value="1">
+                      </div>
+                      <button type="button" class="quote-button">Get Quote</button>
+                      <p class="quote-error muted" hidden></p>
+                      <div class="quote-result" hidden>
+                        <p class="quote-output"></p>
+                        <div class="quote-actions">
+                          <button type="button" data-side="buy">Buy</button>
+                          <button type="button" data-side="sell">Sell</button>
+                        </div>
+                      </div>
+                    </form>
+                    <form method="post" action="{{ url_for('main.trade_option') }}" class="option-trade-form" hidden>
+                      <input type="hidden" name="listing_id">
+                      <input type="hidden" name="quantity">
+                      <input type="hidden" name="side">
+                    </form>
+                  </div>
+                  {% set option_holdings = option_positions.get(security.symbol, []) %}
+                  {% if option_holdings %}
+                    <div class="derivative-holdings">
+                      <h5>Your option positions</h5>
+                      <ul>
+                        {% for holding in option_holdings|sort(attribute='listing.expiration') %}
+                          <li>
+                            {{ holding.quantity }} × {{ holding.listing.option_type.value|upper }} @ {{ '%.2f'|format(holding.listing.strike) }}
+                            (exp {{ holding.listing.expiration.strftime('%H:%M') }})
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                </div>
 
-  <article class="panel">
-    <h3>European Options</h3>
-    <p class="muted">Premiums computed via Black–Scholes with a risk-free rate of {{ '%.2f'|format(risk_free_rate * 100) }}%.</p>
-    <table class="quotes compact">
-      <thead>
-        <tr>
-          <th>Contract</th>
-          <th>Expiry</th>
-          <th>Strike</th>
-          <th>Premium</th>
-          <th>Your Position</th>
-          <th>Trade</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for quote in option_quotes %}
-          {% set listing = quote.listing %}
-          {% set holding = quote.holding %}
-          <tr>
-            <td class="mono">{{ listing.security_symbol }} {{ listing.option_type.value|upper }}</td>
-            <td>{{ listing.expiration.strftime('%Y-%m-%d') }}</td>
-            <td class="mono">{{ '%.2f'|format(listing.strike) }}</td>
-            <td class="mono">{{ '%.2f'|format(quote.premium) }}</td>
-            <td>
-              {% if holding and holding.quantity %}
-                {{ holding.quantity }} @ {{ '%.2f'|format(holding.average_premium) }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td>
-              <form method="post" action="{{ url_for('main.trade_option') }}" class="trade-form">
-                <input type="hidden" name="listing_id" value="{{ listing.id }}">
-                <input name="quantity" type="number" min="1" step="1" value="1" required>
-                <button type="submit" name="side" value="buy">Buy</button>
-                <button type="submit" name="side" value="sell">Sell</button>
-              </form>
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="6">No option listings available.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </article>
-
-  <article class="panel">
-    <h3>Forward Futures</h3>
-    <p class="muted">Quoted on a cost-of-carry model; a 10% margin is posted or released with each adjustment.</p>
-    <table class="quotes compact">
-      <thead>
-        <tr>
-          <th>Contract</th>
-          <th>Delivery</th>
-          <th>Forward</th>
-          <th>Your Position</th>
-          <th>Adjust</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for quote in future_quotes %}
-          {% set listing = quote.listing %}
-          {% set holding = quote.holding %}
-          <tr>
-            <td class="mono">{{ listing.security_symbol }} FUT</td>
-            <td>{{ listing.delivery_date.strftime('%Y-%m-%d') }}</td>
-            <td class="mono">{{ '%.2f'|format(quote.forward) }}</td>
-            <td>
-              {% if holding and holding.quantity %}
-                {{ holding.quantity }} @ {{ '%.2f'|format(holding.entry_price) }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td>
-              <form method="post" action="{{ url_for('main.trade_future') }}" class="trade-form">
-                <input type="hidden" name="listing_id" value="{{ listing.id }}">
-                <input name="quantity" type="number" min="1" step="1" value="1" required>
-                <button type="submit" name="side" value="long">Long</button>
-                <button type="submit" name="side" value="short">Short</button>
-              </form>
+                <div class="derivative-group">
+                  <h4>Futures</h4>
+                  <p class="muted">Quote a delivery within the next hour and adjust your position when ready.</p>
+                  <div class="derivative-quote futures-quote" data-symbol="{{ security.symbol }}">
+                    <form class="future-quote-form">
+                      <input type="hidden" name="symbol" value="{{ security.symbol }}">
+                      <div class="field">
+                        <label>Delivery (minutes)</label>
+                        <input name="delivery_minutes" type="number" min="1" max="60" value="30">
+                      </div>
+                      <div class="field">
+                        <label>Contracts</label>
+                        <input name="quantity" type="number" min="1" step="1" value="1">
+                      </div>
+                      <button type="button" class="quote-button">Get Quote</button>
+                      <p class="quote-error muted" hidden></p>
+                      <div class="quote-result" hidden>
+                        <p class="quote-output"></p>
+                        <div class="quote-actions">
+                          <button type="button" data-side="long">Go Long</button>
+                          <button type="button" data-side="short">Go Short</button>
+                        </div>
+                      </div>
+                    </form>
+                    <form method="post" action="{{ url_for('main.trade_future') }}" class="future-trade-form" hidden>
+                      <input type="hidden" name="listing_id">
+                      <input type="hidden" name="quantity">
+                      <input type="hidden" name="side">
+                    </form>
+                  </div>
+                  {% set future_holdings = future_positions.get(security.symbol, []) %}
+                  {% if future_holdings %}
+                    <div class="derivative-holdings">
+                      <h5>Your future positions</h5>
+                      <ul>
+                        {% for holding in future_holdings|sort(attribute='listing.delivery_date') %}
+                          <li>
+                            {{ holding.quantity }} × delivery {{ holding.listing.delivery_date.strftime('%H:%M') }}
+                            @ {{ '%.2f'|format(holding.entry_price) }}
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
             </td>
           </tr>
-        {% else %}
-          <tr><td colspan="5">No futures available.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -149,12 +168,13 @@
       }
       const data = await response.json();
       data.forEach(entry => {
-        const row = document.querySelector(`#securities-quotes tbody tr[data-symbol="${entry.symbol}"]`);
+        const row = document.querySelector(`#securities-quotes tbody tr.primary-row[data-symbol="${entry.symbol}"]`);
         if (!row) {
           return;
         }
         const priceCell = row.querySelector('.price');
         const changeCell = row.querySelector('.change');
+        row.dataset.lastPrice = entry.price.toFixed(2);
         if (priceCell) {
           priceCell.textContent = entry.price.toFixed(2);
         }
@@ -164,6 +184,13 @@
           changeCell.classList.toggle('positive', delta > 0);
           changeCell.classList.toggle('negative', delta < 0);
         }
+        const derivativesRow = row.nextElementSibling;
+        if (derivativesRow && derivativesRow.classList.contains('derivatives-row')) {
+          const strikeInput = derivativesRow.querySelector('.option-strike');
+          if (strikeInput && strikeInput.dataset.sync !== 'false') {
+            strikeInput.value = entry.price.toFixed(2);
+          }
+        }
       });
     } catch (err) {
       console.error('Failed to refresh quotes', err);
@@ -172,6 +199,172 @@
   document.addEventListener('DOMContentLoaded', () => {
     refreshQuotes();
     setInterval(refreshQuotes, refreshInterval);
+    document.querySelectorAll('.derivatives-toggle').forEach(button => {
+      button.addEventListener('click', event => {
+        const row = event.currentTarget.closest('tr.primary-row');
+        if (!row) {
+          return;
+        }
+        const derivativesRow = row.nextElementSibling;
+        if (!derivativesRow || !derivativesRow.classList.contains('derivatives-row')) {
+          return;
+        }
+        const isHidden = derivativesRow.hasAttribute('hidden');
+        if (isHidden) {
+          derivativesRow.removeAttribute('hidden');
+          event.currentTarget.classList.add('active');
+        } else {
+          derivativesRow.setAttribute('hidden', 'hidden');
+          event.currentTarget.classList.remove('active');
+        }
+      });
+    });
+
+    document.querySelectorAll('.option-strike').forEach(input => {
+      input.addEventListener('input', () => {
+        input.dataset.sync = 'false';
+      });
+    });
+
+    setupOptionQuotes();
+    setupFutureQuotes();
   });
+
+  function setupOptionQuotes() {
+    document.querySelectorAll('.options-quote').forEach(container => {
+      const form = container.querySelector('.option-quote-form');
+      const quoteButton = form.querySelector('.quote-button');
+      const resultBox = form.querySelector('.quote-result');
+      const resultText = form.querySelector('.quote-output');
+      const errorBox = form.querySelector('.quote-error');
+      const tradeForm = container.querySelector('.option-trade-form');
+      const actionButtons = resultBox.querySelectorAll('button[data-side]');
+      quoteButton.addEventListener('click', async () => {
+        errorBox.textContent = '';
+        errorBox.hidden = true;
+        resultBox.hidden = true;
+        const formData = new FormData(form);
+        const quantity = parseInt(formData.get('quantity'), 10);
+        if (!quantity || quantity <= 0) {
+          errorBox.textContent = 'Enter a positive number of contracts.';
+          errorBox.hidden = false;
+          return;
+        }
+        const payload = {
+          symbol: formData.get('symbol'),
+          option_type: formData.get('option_type'),
+          strike: formData.get('strike'),
+          expiry_minutes: formData.get('expiry_minutes'),
+        };
+        try {
+          const response = await fetch('{{ url_for('main.quote_option') }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to fetch option quote.');
+          }
+          const data = await response.json();
+          tradeForm.elements.listing_id.value = data.listing_id;
+          resultText.textContent = `${data.symbol} ${data.option_type.toUpperCase()} strike ${Number(data.strike).toFixed(2)} premium ${Number(data.premium).toFixed(2)} expiring ${new Date(data.expiration).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`;
+          resultBox.hidden = false;
+        } catch (error) {
+          console.error(error);
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        }
+      });
+
+      actionButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          if (!tradeForm.elements.listing_id.value) {
+            errorBox.textContent = 'Request a quote before trading.';
+            errorBox.hidden = false;
+            return;
+          }
+          const quantityField = form.querySelector('input[name="quantity"]');
+          const quantity = parseInt(quantityField.value, 10);
+          if (!quantity || quantity <= 0) {
+            errorBox.textContent = 'Enter a positive number of contracts.';
+            errorBox.hidden = false;
+            return;
+          }
+          tradeForm.elements.quantity.value = quantity;
+          tradeForm.elements.side.value = button.dataset.side;
+          tradeForm.submit();
+        });
+      });
+    });
+  }
+
+  function setupFutureQuotes() {
+    document.querySelectorAll('.futures-quote').forEach(container => {
+      const form = container.querySelector('.future-quote-form');
+      const quoteButton = form.querySelector('.quote-button');
+      const resultBox = form.querySelector('.quote-result');
+      const resultText = form.querySelector('.quote-output');
+      const errorBox = form.querySelector('.quote-error');
+      const tradeForm = container.querySelector('.future-trade-form');
+      const actionButtons = resultBox.querySelectorAll('button[data-side]');
+      quoteButton.addEventListener('click', async () => {
+        errorBox.textContent = '';
+        errorBox.hidden = true;
+        resultBox.hidden = true;
+        const formData = new FormData(form);
+        const quantity = parseInt(formData.get('quantity'), 10);
+        if (!quantity || quantity <= 0) {
+          errorBox.textContent = 'Enter a positive number of contracts.';
+          errorBox.hidden = false;
+          return;
+        }
+        const payload = {
+          symbol: formData.get('symbol'),
+          delivery_minutes: formData.get('delivery_minutes'),
+        };
+        try {
+          const response = await fetch('{{ url_for('main.quote_future') }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to fetch future quote.');
+          }
+          const data = await response.json();
+          tradeForm.elements.listing_id.value = data.listing_id;
+          const deliveryTime = new Date(data.delivery).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+          resultText.textContent = `${data.symbol} delivery ${deliveryTime} forward ${Number(data.forward).toFixed(2)}`;
+          resultBox.hidden = false;
+        } catch (error) {
+          console.error(error);
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        }
+      });
+
+      actionButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          if (!tradeForm.elements.listing_id.value) {
+            errorBox.textContent = 'Request a quote before trading.';
+            errorBox.hidden = false;
+            return;
+          }
+          const quantityField = form.querySelector('input[name="quantity"]');
+          const quantity = parseInt(quantityField.value, 10);
+          if (!quantity || quantity <= 0) {
+            errorBox.textContent = 'Enter a positive number of contracts.';
+            errorBox.hidden = false;
+            return;
+          }
+          tradeForm.elements.quantity.value = quantity;
+          tradeForm.elements.side.value = button.dataset.side;
+          tradeForm.submit();
+        });
+      });
+    });
+  }
 </script>
 {% endblock %}
