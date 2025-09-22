@@ -5,173 +5,574 @@
   <article class="panel wide">
     <h2>Primary Securities</h2>
     <p class="muted">Prices evolve every {{ update_interval|int }} seconds based on stochastic supply and demand dynamics.</p>
-    <table class="quotes" id="securities-quotes">
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th>Name</th>
-          <th>Last Price</th>
-          <th>Δ</th>
-          <th>Position</th>
-          <th>Description</th>
-          <th>Trade</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for security in securities %}
-          {% set position = security_positions.get(security.symbol) %}
-          <tr data-symbol="{{ security.symbol }}">
-            <td class="mono">{{ security.symbol }}</td>
-            <td>{{ security.name }}</td>
-            <td class="mono price">{{ '%.2f'|format(security.last_price) }}</td>
-            <td class="mono change">0.00</td>
-            <td>
+    <div class="securities-header">
+      <span class="col symbol">Symbol</span>
+      <span class="col name">Name</span>
+      <span class="col price">Last Price</span>
+      <span class="col delta">δ (10m)</span>
+      <span class="col position">Position</span>
+      <span class="col expand-placeholder" aria-hidden="true"></span>
+    </div>
+    <div class="securities-list">
+      {% for security in securities %}
+        {% set position = security_positions.get(security.symbol) %}
+        <details class="security-card" data-symbol="{{ security.symbol }}">
+          <summary>
+            <span class="col symbol mono">{{ security.symbol }}</span>
+            <span class="col name">{{ security.name }}</span>
+            <span class="col price mono price">{{ '%.2f'|format(security.last_price) }}</span>
+            <span class="col delta mono delta {% if security.delta_10m > 0 %}positive{% elif security.delta_10m < 0 %}negative{% endif %}">{{ '%.2f'|format(security.delta_10m) }}</span>
+            <span class="col position">
               {% if position and position.quantity %}
                 {{ '%.2f'|format(position.quantity) }} @ {{ '%.2f'|format(position.average_price) }}
               {% else %}
                 —
               {% endif %}
-            </td>
-            <td class="description">{{ security.description }}</td>
-            <td>
-              <form method="post" action="{{ url_for('main.trade_security') }}" class="trade-form">
-                <input type="hidden" name="symbol" value="{{ security.symbol }}">
-                <label class="sr-only" for="qty-{{ loop.index }}">Quantity</label>
-                <input id="qty-{{ loop.index }}" name="quantity" type="number" min="0.1" step="0.1" value="1" required>
-                <button type="submit" name="side" value="buy">Buy</button>
-                <button type="submit" name="side" value="sell">Sell</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </article>
-
-  <article class="panel">
-    <h3>European Options</h3>
-    <p class="muted">Premiums computed via Black–Scholes with a risk-free rate of {{ '%.2f'|format(risk_free_rate * 100) }}%.</p>
-    <table class="quotes compact">
-      <thead>
-        <tr>
-          <th>Contract</th>
-          <th>Expiry</th>
-          <th>Strike</th>
-          <th>Premium</th>
-          <th>Your Position</th>
-          <th>Trade</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for quote in option_quotes %}
-          {% set listing = quote.listing %}
-          {% set holding = quote.holding %}
-          <tr>
-            <td class="mono">{{ listing.security_symbol }} {{ listing.option_type.value|upper }}</td>
-            <td title="{{ quote.expiration_str }}">{{ quote.minutes_left }} min</td>
-            <td class="mono">{{ '%.2f'|format(listing.strike) }}</td>
-            <td class="mono">{{ '%.2f'|format(quote.premium) }}</td>
-            <td>
-              {% if holding and holding.quantity %}
-                {{ holding.quantity }} @ {{ '%.2f'|format(holding.average_premium) }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td>
-              <form method="post" action="{{ url_for('main.trade_option') }}" class="trade-form">
-                <input type="hidden" name="listing_id" value="{{ listing.id }}">
-                <input name="quantity" type="number" min="1" step="1" value="1" required>
-                <button type="submit" name="side" value="buy">Buy</button>
-                <button type="submit" name="side" value="sell">Sell</button>
-              </form>
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="6">No option listings available.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </article>
-
-  <article class="panel">
-    <h3>Forward Futures</h3>
-    <p class="muted">Quoted on a cost-of-carry model; a 10% margin is posted or released with each adjustment.</p>
-    <table class="quotes compact">
-      <thead>
-        <tr>
-          <th>Contract</th>
-          <th>Delivery</th>
-          <th>Forward</th>
-          <th>Your Position</th>
-          <th>Adjust</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for quote in future_quotes %}
-          {% set listing = quote.listing %}
-          {% set holding = quote.holding %}
-          <tr>
-            <td class="mono">{{ listing.security_symbol }} FUT</td>
-            <td title="{{ quote.delivery_str }}">{{ quote.minutes_left }} min</td>
-            <td class="mono">{{ '%.2f'|format(quote.forward) }}</td>
-            <td>
-              {% if holding and holding.quantity %}
-                {{ holding.quantity }} @ {{ '%.2f'|format(holding.entry_price) }}
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td>
-              <form method="post" action="{{ url_for('main.trade_future') }}" class="trade-form">
-                <input type="hidden" name="listing_id" value="{{ listing.id }}">
-                <input name="quantity" type="number" min="1" step="1" value="1" required>
-                <button type="submit" name="side" value="long">Long</button>
-                <button type="submit" name="side" value="short">Short</button>
-              </form>
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="5">No futures available.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+            </span>
+            <span class="col expand-icon" aria-hidden="true">▸</span>
+          </summary>
+          <div class="security-body">
+            <div class="security-overview">
+              <div class="security-info">
+                <p class="description">{{ security.description }}</p>
+                <form method="post" action="{{ url_for('main.trade_security') }}" class="trade-form inline-trade">
+                  <input type="hidden" name="symbol" value="{{ security.symbol }}">
+                  <label class="sr-only" for="qty-{{ loop.index }}">Quantity</label>
+                  <input id="qty-{{ loop.index }}" name="quantity" type="number" min="0.1" step="0.1" value="1" required>
+                  <button type="submit" name="side" value="buy">Buy</button>
+                  <button type="submit" name="side" value="sell">Sell</button>
+                </form>
+              </div>
+              <div class="chart-container" data-chart="{{ security.symbol }}">
+                <canvas></canvas>
+                <div class="chart-loading">Loading chart…</div>
+                <div class="chart-tooltip" hidden></div>
+              </div>
+            </div>
+            <div class="derivatives-grid">
+              <section class="derivative-panel options">
+                <header>
+                  <h4>European Options</h4>
+                  <p class="muted">Premiums computed via Black–Scholes with a risk-free rate of {{ '%.2f'|format(risk_free_rate * 100) }}%.</p>
+                </header>
+                <table class="quotes compact">
+                  <thead>
+                    <tr>
+                      <th>Contract</th>
+                      <th>Expiry</th>
+                      <th>Strike</th>
+                      <th>Premium</th>
+                      <th>Your Position</th>
+                      <th>Trade</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="placeholder"><td colspan="6">Loading…</td></tr>
+                  </tbody>
+                </table>
+              </section>
+              <section class="derivative-panel futures">
+                <header>
+                  <h4>Forward Futures</h4>
+                  <p class="muted">Quoted on a cost-of-carry model; a 10% margin is posted or released with each adjustment.</p>
+                </header>
+                <table class="quotes compact">
+                  <thead>
+                    <tr>
+                      <th>Contract</th>
+                      <th>Delivery</th>
+                      <th>Forward</th>
+                      <th>Your Position</th>
+                      <th>Adjust</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="placeholder"><td colspan="5">Loading…</td></tr>
+                  </tbody>
+                </table>
+              </section>
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
   </article>
 </section>
 
 <script>
   const refreshInterval = Math.max(1000, {{ update_interval|int }} * 1000);
+  const detailsEndpointTemplate = "{{ url_for('main.security_details', symbol='__SYMBOL__') }}";
+  const chartStates = new Map();
+
+  function applyDeltaClass(element, value) {
+    if (!element) {
+      return;
+    }
+    element.classList.toggle('positive', value > 0);
+    element.classList.toggle('negative', value < 0);
+  }
+
+  function formatPositionText(position) {
+    if (!position || !position.quantity) {
+      return '—';
+    }
+    return `${Number(position.quantity).toFixed(2)} @ ${Number(position.average_price).toFixed(2)}`;
+  }
+
+  function clearTable(tbody, message, colspan) {
+    tbody.innerHTML = '';
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = colspan;
+    cell.textContent = message;
+    row.appendChild(cell);
+    tbody.appendChild(row);
+  }
+
+  function createOptionRow(option) {
+    const row = document.createElement('tr');
+
+    const contract = document.createElement('td');
+    contract.classList.add('mono');
+    contract.textContent = option.contract;
+    row.appendChild(contract);
+
+    const expiry = document.createElement('td');
+    expiry.textContent = `${option.minutes_left} min`;
+    expiry.title = option.expiration_display;
+    row.appendChild(expiry);
+
+    const strike = document.createElement('td');
+    strike.classList.add('mono');
+    strike.textContent = Number(option.strike).toFixed(2);
+    row.appendChild(strike);
+
+    const premium = document.createElement('td');
+    premium.classList.add('mono');
+    premium.textContent = Number(option.premium).toFixed(2);
+    row.appendChild(premium);
+
+    const holdingCell = document.createElement('td');
+    if (option.holding && option.holding.quantity) {
+      holdingCell.textContent = `${option.holding.quantity} @ ${Number(option.holding.average_premium).toFixed(2)}`;
+    } else {
+      holdingCell.textContent = '—';
+    }
+    row.appendChild(holdingCell);
+
+    const tradeCell = document.createElement('td');
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = "{{ url_for('main.trade_option') }}";
+    form.classList.add('trade-form');
+
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'listing_id';
+    hidden.value = option.id;
+    form.appendChild(hidden);
+
+    const quantity = document.createElement('input');
+    quantity.type = 'number';
+    quantity.name = 'quantity';
+    quantity.min = '1';
+    quantity.step = '1';
+    quantity.value = '1';
+    quantity.required = true;
+    form.appendChild(quantity);
+
+    const buy = document.createElement('button');
+    buy.type = 'submit';
+    buy.name = 'side';
+    buy.value = 'buy';
+    buy.textContent = 'Buy';
+    form.appendChild(buy);
+
+    const sell = document.createElement('button');
+    sell.type = 'submit';
+    sell.name = 'side';
+    sell.value = 'sell';
+    sell.textContent = 'Sell';
+    form.appendChild(sell);
+
+    tradeCell.appendChild(form);
+    row.appendChild(tradeCell);
+
+    return row;
+  }
+
+  function createFutureRow(future) {
+    const row = document.createElement('tr');
+
+    const contract = document.createElement('td');
+    contract.classList.add('mono');
+    contract.textContent = future.contract;
+    row.appendChild(contract);
+
+    const delivery = document.createElement('td');
+    delivery.textContent = `${future.minutes_left} min`;
+    delivery.title = future.delivery_display;
+    row.appendChild(delivery);
+
+    const forward = document.createElement('td');
+    forward.classList.add('mono');
+    forward.textContent = Number(future.forward).toFixed(2);
+    row.appendChild(forward);
+
+    const holdingCell = document.createElement('td');
+    if (future.holding && future.holding.quantity) {
+      holdingCell.textContent = `${future.holding.quantity} @ ${Number(future.holding.entry_price).toFixed(2)}`;
+    } else {
+      holdingCell.textContent = '—';
+    }
+    row.appendChild(holdingCell);
+
+    const tradeCell = document.createElement('td');
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = "{{ url_for('main.trade_future') }}";
+    form.classList.add('trade-form');
+
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'listing_id';
+    hidden.value = future.id;
+    form.appendChild(hidden);
+
+    const quantity = document.createElement('input');
+    quantity.type = 'number';
+    quantity.name = 'quantity';
+    quantity.min = '1';
+    quantity.step = '1';
+    quantity.value = '1';
+    quantity.required = true;
+    form.appendChild(quantity);
+
+    const longBtn = document.createElement('button');
+    longBtn.type = 'submit';
+    longBtn.name = 'side';
+    longBtn.value = 'long';
+    longBtn.textContent = 'Long';
+    form.appendChild(longBtn);
+
+    const shortBtn = document.createElement('button');
+    shortBtn.type = 'submit';
+    shortBtn.name = 'side';
+    shortBtn.value = 'short';
+    shortBtn.textContent = 'Short';
+    form.appendChild(shortBtn);
+
+    tradeCell.appendChild(form);
+    row.appendChild(tradeCell);
+
+    return row;
+  }
+
+  function showTooltip(state, hoverIndex, evt) {
+    const tooltip = state.tooltip;
+    if (!tooltip) {
+      return;
+    }
+    if (hoverIndex == null || !state.candles.length) {
+      tooltip.hidden = true;
+      return;
+    }
+    const candle = state.candles[hoverIndex];
+    tooltip.innerHTML = `<strong>${new Date(candle.timestamp).toLocaleString()}</strong>` +
+      `O: ${Number(candle.open).toFixed(2)}  H: ${Number(candle.high).toFixed(2)}  ` +
+      `L: ${Number(candle.low).toFixed(2)}  C: ${Number(candle.close).toFixed(2)}`;
+    tooltip.hidden = false;
+
+    const rect = state.canvas.getBoundingClientRect();
+    const width = rect.width;
+    let x = evt ? evt.clientX - rect.left : ((hoverIndex + 0.5) / state.candles.length) * width;
+    x = Math.min(width - 150, Math.max(8, x + 12));
+    tooltip.style.left = `${x}px`;
+    tooltip.style.top = `12px`;
+  }
+
+  function renderCandles(state, hoverIndex = null) {
+    const { canvas, candles } = state;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.clientWidth || 600;
+    const height = canvas.clientHeight || 260;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
+    if (!candles.length) {
+      ctx.restore();
+      return;
+    }
+
+    const highs = candles.map(c => Number(c.high));
+    const lows = candles.map(c => Number(c.low));
+    const maxPrice = Math.max(...highs);
+    const minPrice = Math.min(...lows);
+    const padding = (maxPrice - minPrice) * 0.08 || 1;
+    const top = maxPrice + padding;
+    const bottom = Math.max(0, minPrice - padding);
+
+    const count = candles.length;
+    const step = width / count;
+    const scaleY = price => {
+      const ratio = (Number(price) - bottom) / (top - bottom || 1);
+      return height - ratio * height;
+    };
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    const gridLines = 4;
+    for (let i = 1; i < gridLines; i++) {
+      const y = (height / gridLines) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+      const price = top - ((top - bottom) / gridLines) * i;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.font = '10px "IBM Plex Sans", "Segoe UI", sans-serif';
+      ctx.fillText(price.toFixed(2), 6, Math.min(height - 6, y - 2));
+    }
+
+    if (hoverIndex != null) {
+      const x = hoverIndex * step;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.fillRect(x, 0, step, height);
+    }
+
+    candles.forEach((candle, index) => {
+      const open = Number(candle.open);
+      const close = Number(candle.close);
+      const high = Number(candle.high);
+      const low = Number(candle.low);
+      const xCenter = index * step + step / 2;
+      const color = close >= open ? '#1affd5' : '#ff4f64';
+
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(xCenter, scaleY(high));
+      ctx.lineTo(xCenter, scaleY(low));
+      ctx.stroke();
+
+      const bodyTop = scaleY(Math.max(open, close));
+      const bodyBottom = scaleY(Math.min(open, close));
+      let bodyHeight = bodyBottom - bodyTop;
+      if (Math.abs(bodyHeight) < 1) {
+        bodyHeight = bodyHeight >= 0 ? 1 : -1;
+      }
+      const bodyWidth = Math.min(24, Math.max(6, step * 0.6));
+      const bodyX = xCenter - bodyWidth / 2;
+
+      ctx.fillStyle = color;
+      if (bodyHeight >= 0) {
+        ctx.fillRect(bodyX, bodyTop, bodyWidth, Math.abs(bodyHeight));
+      } else {
+        ctx.fillRect(bodyX, bodyBottom, bodyWidth, Math.abs(bodyHeight));
+      }
+    });
+
+    ctx.restore();
+  }
+
+  function attachChart(canvas, candles) {
+    const container = canvas.parentElement;
+    const tooltip = container.querySelector('.chart-tooltip');
+    const state = {
+      canvas,
+      tooltip,
+      candles: candles.slice(),
+      hoverIndex: null,
+      resizeObserver: null,
+    };
+
+    state.render = (hoverIndex = null) => {
+      state.hoverIndex = hoverIndex;
+      renderCandles(state, hoverIndex);
+    };
+
+    chartStates.set(canvas, state);
+    state.render();
+
+    const handleMove = event => {
+      if (!state.candles.length) {
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const relativeX = event.clientX - rect.left;
+      const ratio = relativeX / rect.width;
+      const index = Math.min(state.candles.length - 1, Math.max(0, Math.round(ratio * (state.candles.length - 1))));
+      if (state.hoverIndex !== index) {
+        state.render(index);
+      }
+      showTooltip(state, index, event);
+    };
+
+    const handleLeave = () => {
+      state.render(null);
+      showTooltip(state, null, null);
+    };
+
+    canvas.addEventListener('mousemove', handleMove);
+    canvas.addEventListener('mouseleave', handleLeave);
+
+    if (window.ResizeObserver) {
+      state.resizeObserver = new ResizeObserver(() => {
+        state.render(state.hoverIndex);
+        if (state.hoverIndex != null) {
+          showTooltip(state, state.hoverIndex, null);
+        }
+      });
+      state.resizeObserver.observe(container);
+    }
+  }
+
+  function updateChart(canvas, candles) {
+    let state = chartStates.get(canvas);
+    if (!state) {
+      attachChart(canvas, candles);
+      state = chartStates.get(canvas);
+    } else {
+      state.candles = candles.slice();
+      state.render(null);
+      showTooltip(state, null, null);
+    }
+  }
+
+  async function loadSecurityDetails(symbol) {
+    const card = document.querySelector(`.security-card[data-symbol="${symbol}"]`);
+    if (!card) {
+      return;
+    }
+    const body = card.querySelector('.security-body');
+    const chartContainer = body.querySelector('.chart-container');
+    const loadingEl = chartContainer.querySelector('.chart-loading');
+    loadingEl.textContent = 'Loading chart…';
+    loadingEl.hidden = false;
+
+    const optionsBody = body.querySelector('.options tbody');
+    const futuresBody = body.querySelector('.futures tbody');
+    clearTable(optionsBody, 'Loading…', 6);
+    clearTable(futuresBody, 'Loading…', 5);
+
+    const url = detailsEndpointTemplate.replace('__SYMBOL__', encodeURIComponent(symbol));
+    try {
+      const response = await fetch(url, { cache: 'no-cache' });
+      if (!response.ok) {
+        throw new Error('Failed to fetch security details');
+      }
+      const data = await response.json();
+
+      const price = Number(data.last_price || 0);
+      const delta = Number(data.delta_10m || 0);
+      const priceEl = card.querySelector('.price');
+      const deltaEl = card.querySelector('.delta');
+      const positionEl = card.querySelector('.col.position');
+      if (priceEl) {
+        priceEl.textContent = price.toFixed(2);
+      }
+      if (deltaEl) {
+        deltaEl.textContent = delta.toFixed(2);
+        applyDeltaClass(deltaEl, delta);
+      }
+      if (positionEl) {
+        positionEl.textContent = formatPositionText(data.position);
+      }
+
+      const descriptionEl = body.querySelector('.description');
+      if (descriptionEl) {
+        descriptionEl.textContent = data.description || descriptionEl.textContent;
+      }
+
+      const optionList = Array.isArray(data.options) ? data.options : [];
+      optionsBody.innerHTML = '';
+      if (!optionList.length) {
+        clearTable(optionsBody, 'No option listings available.', 6);
+      } else {
+        optionList.forEach(option => {
+          optionsBody.appendChild(createOptionRow(option));
+        });
+      }
+
+      const futureList = Array.isArray(data.futures) ? data.futures : [];
+      futuresBody.innerHTML = '';
+      if (!futureList.length) {
+        clearTable(futuresBody, 'No futures available.', 5);
+      } else {
+        futureList.forEach(future => {
+          futuresBody.appendChild(createFutureRow(future));
+        });
+      }
+
+      const canvas = chartContainer.querySelector('canvas');
+      const candles = Array.isArray(data.candles)
+        ? data.candles.map(candle => ({
+            timestamp: candle.timestamp,
+            open: Number(candle.open),
+            high: Number(candle.high),
+            low: Number(candle.low),
+            close: Number(candle.close),
+          }))
+        : [];
+
+      if (!candles.length) {
+        loadingEl.textContent = 'No price history yet.';
+        loadingEl.hidden = false;
+        updateChart(canvas, []);
+      } else {
+        loadingEl.hidden = true;
+        updateChart(canvas, candles);
+      }
+    } catch (err) {
+      console.error(err);
+      clearTable(optionsBody, 'Failed to load options.', 6);
+      clearTable(futuresBody, 'Failed to load futures.', 5);
+      loadingEl.textContent = 'Failed to load chart data.';
+      loadingEl.hidden = false;
+    }
+  }
+
   async function refreshQuotes() {
     try {
-      const response = await fetch("{{ url_for('main.securities_snapshot') }}", {cache: 'no-cache'});
+      const response = await fetch("{{ url_for('main.securities_snapshot') }}", { cache: 'no-cache' });
       if (!response.ok) {
         return;
       }
       const data = await response.json();
       data.forEach(entry => {
-        const row = document.querySelector(`#securities-quotes tbody tr[data-symbol="${entry.symbol}"]`);
-        if (!row) {
+        const card = document.querySelector(`.security-card[data-symbol="${entry.symbol}"]`);
+        if (!card) {
           return;
         }
-        const priceCell = row.querySelector('.price');
-        const changeCell = row.querySelector('.change');
-        if (priceCell) {
-          priceCell.textContent = entry.price.toFixed(2);
+        const priceEl = card.querySelector('.price');
+        const deltaEl = card.querySelector('.delta');
+        if (priceEl) {
+          priceEl.textContent = Number(entry.price).toFixed(2);
         }
-        if (changeCell) {
-          const delta = entry.change || 0;
-          changeCell.textContent = delta.toFixed(2);
-          changeCell.classList.toggle('positive', delta > 0);
-          changeCell.classList.toggle('negative', delta < 0);
+        if (deltaEl) {
+          const delta = Number(entry.delta_10m || 0);
+          deltaEl.textContent = delta.toFixed(2);
+          applyDeltaClass(deltaEl, delta);
         }
       });
     } catch (err) {
       console.error('Failed to refresh quotes', err);
     }
   }
+
   document.addEventListener('DOMContentLoaded', () => {
     refreshQuotes();
     setInterval(refreshQuotes, refreshInterval);
+    document.querySelectorAll('.security-card').forEach(card => {
+      card.addEventListener('toggle', () => {
+        if (card.open) {
+          loadSecurityDetails(card.dataset.symbol);
+        }
+      });
+    });
   });
 </script>
 {% endblock %}

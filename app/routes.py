@@ -1,6 +1,6 @@
 import base64
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import qrcode
 from flask import (
@@ -85,6 +85,100 @@ def record_transaction(user, amount, description, counterparty=None, type_="game
     if commit:
         db.session.commit()
     return txn
+
+
+def _price_at_or_before(symbol: str, target: datetime):
+    return (
+        SecurityPriceHistory.query.filter_by(security_symbol=symbol)
+        .filter(SecurityPriceHistory.timestamp <= target)
+        .order_by(SecurityPriceHistory.timestamp.desc())
+        .first()
+    )
+
+
+def _earliest_price(symbol: str):
+    return (
+        SecurityPriceHistory.query.filter_by(security_symbol=symbol)
+        .order_by(SecurityPriceHistory.timestamp.asc())
+        .first()
+    )
+
+
+def _delta_over_window(security: Security, window: timedelta = timedelta(minutes=10)) -> float:
+    if not security:
+        return 0.0
+    target = datetime.utcnow() - window
+    baseline_entry = _price_at_or_before(security.symbol, target)
+    if not baseline_entry:
+        baseline = security.last_price
+        earliest = _earliest_price(security.symbol)
+        if earliest:
+            baseline = earliest.price
+    else:
+        baseline = baseline_entry.price
+    return security.last_price - baseline
+
+
+def _build_candles(symbol: str, window: timedelta = timedelta(hours=2)):
+    now = datetime.utcnow()
+    start = now - window
+    history = (
+        SecurityPriceHistory.query.filter_by(security_symbol=symbol)
+        .filter(SecurityPriceHistory.timestamp >= start)
+        .order_by(SecurityPriceHistory.timestamp.asc())
+        .all()
+    )
+    if not history:
+        fallback = (
+            SecurityPriceHistory.query.filter_by(security_symbol=symbol)
+            .order_by(SecurityPriceHistory.timestamp.desc())
+            .limit(180)
+            .all()
+        )
+        history = list(reversed(fallback))
+
+    buckets = {}
+    for entry in history:
+        bucket_start = entry.timestamp.replace(second=0, microsecond=0)
+        bucket = buckets.get(bucket_start)
+        if not bucket:
+            buckets[bucket_start] = {
+                "open": entry.price,
+                "high": entry.price,
+                "low": entry.price,
+                "close": entry.price,
+            }
+        else:
+            bucket["high"] = max(bucket["high"], entry.price)
+            bucket["low"] = min(bucket["low"], entry.price)
+            bucket["close"] = entry.price
+
+    ordered = []
+    for ts in sorted(buckets.keys()):
+        data = buckets[ts]
+        ordered.append(
+            {
+                "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "open": data["open"],
+                "high": data["high"],
+                "low": data["low"],
+                "close": data["close"],
+            }
+        )
+
+    if not ordered and history:
+        entry = history[-1]
+        ordered.append(
+            {
+                "timestamp": entry.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "open": entry.price,
+                "high": entry.price,
+                "low": entry.price,
+                "close": entry.price,
+            }
+        )
+
+    return ordered[-180:]
 
 
 @bp.route("/")
@@ -262,60 +356,13 @@ def securities_hub():
         holding.security_symbol: holding
         for holding in SecurityHolding.query.filter_by(user_id=current_user.id).all()
     }
-    option_positions = {
-        holding.listing_id: holding
-        for holding in OptionHolding.query.filter_by(user_id=current_user.id).all()
-    }
-    future_positions = {
-        holding.listing_id: holding
-        for holding in FutureHolding.query.filter_by(user_id=current_user.id).all()
-    }
-
-    now = datetime.utcnow()
-    active_options = (
-        OptionListing.query.filter(OptionListing.expiration > datetime.utcnow())
-        .order_by(OptionListing.security_symbol.asc(), OptionListing.expiration.asc())
-        .all()
-    )
-    option_quotes = []
-    for listing in active_options:
-        seconds_left = max(0.0, (listing.expiration - now).total_seconds())
-        minutes_left = int((seconds_left + 59) // 60)
-        option_quotes.append(
-            {
-                "listing": listing,
-                "premium": simulator.price_option(listing),
-                "holding": option_positions.get(listing.id),
-                "minutes_left": minutes_left,
-                "expiration_str": listing.expiration.strftime('%Y-%m-%d %H:%M:%S UTC'),
-            }
-        )
-
-    active_futures = (
-        FutureListing.query.filter(FutureListing.delivery_date > datetime.utcnow())
-        .order_by(FutureListing.security_symbol.asc(), FutureListing.delivery_date.asc())
-        .all()
-    )
-    future_quotes = []
-    for listing in active_futures:
-        seconds_left = max(0.0, (listing.delivery_date - now).total_seconds())
-        minutes_left = int((seconds_left + 59) // 60)
-        future_quotes.append(
-            {
-                "listing": listing,
-                "forward": simulator.price_future(listing),
-                "holding": future_positions.get(listing.id),
-                "minutes_left": minutes_left,
-                "delivery_str": listing.delivery_date.strftime('%Y-%m-%d %H:%M:%S UTC'),
-            }
-        )
+    for security in securities:
+        security.delta_10m = _delta_over_window(security)
 
     return render_template(
         "securities.html",
         securities=securities,
         security_positions=security_positions,
-        option_quotes=option_quotes,
-        future_quotes=future_quotes,
         update_interval=simulator.interval,
         risk_free_rate=simulator.risk_free_rate,
     )
@@ -327,15 +374,7 @@ def securities_snapshot():
     securities = Security.query.order_by(Security.symbol.asc()).all()
     payload = []
     for security in securities:
-        latest_history = (
-            SecurityPriceHistory.query.filter_by(security_symbol=security.symbol)
-            .order_by(SecurityPriceHistory.timestamp.desc())
-            .limit(2)
-            .all()
-        )
-        change = 0.0
-        if len(latest_history) >= 2:
-            change = latest_history[0].price - latest_history[1].price
+        change = _delta_over_window(security)
         payload.append(
             {
                 "symbol": security.symbol,
@@ -343,9 +382,135 @@ def securities_snapshot():
                 "price": security.last_price,
                 "updated_at": security.updated_at.isoformat(),
                 "description": security.description,
-                "change": change,
+                "delta_10m": change,
             }
         )
+    return jsonify(payload)
+
+
+@bp.route("/api/securities/<symbol>/details")
+@login_required
+def security_details(symbol):
+    if not symbol:
+        abort(404)
+    normalized = symbol.strip().upper()
+    security = Security.query.get_or_404(normalized)
+    simulator = get_simulator()
+
+    position = (
+        SecurityHolding.query.filter_by(
+            user_id=current_user.id, security_symbol=security.symbol
+        )
+        .first()
+    )
+
+    delta_10m = _delta_over_window(security)
+
+    now = datetime.utcnow()
+
+    option_listings = (
+        OptionListing.query.filter_by(security_symbol=security.symbol)
+        .filter(OptionListing.expiration > now)
+        .order_by(OptionListing.expiration.asc())
+        .all()
+    )
+    option_holdings = {}
+    if option_listings:
+        listing_ids = [listing.id for listing in option_listings]
+        option_holdings = {
+            holding.listing_id: holding
+            for holding in OptionHolding.query.filter(
+                OptionHolding.user_id == current_user.id,
+                OptionHolding.listing_id.in_(listing_ids),
+            ).all()
+        }
+
+    options_payload = []
+    for listing in option_listings:
+        seconds_left = max(0.0, (listing.expiration - now).total_seconds())
+        minutes_left = int((seconds_left + 59) // 60)
+        holding = option_holdings.get(listing.id)
+        options_payload.append(
+            {
+                "id": listing.id,
+                "contract": f"{listing.security_symbol} {listing.option_type.value.upper()}",
+                "option_type": listing.option_type.value,
+                "strike": listing.strike,
+                "minutes_left": minutes_left,
+                "expiration_display": listing.expiration.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "premium": simulator.price_option(listing),
+                "holding": (
+                    {
+                        "quantity": holding.quantity,
+                        "average_premium": holding.average_premium,
+                    }
+                    if holding and holding.quantity
+                    else None
+                ),
+            }
+        )
+
+    future_listings = (
+        FutureListing.query.filter_by(security_symbol=security.symbol)
+        .filter(FutureListing.delivery_date > now)
+        .order_by(FutureListing.delivery_date.asc())
+        .all()
+    )
+    future_holdings = {}
+    if future_listings:
+        listing_ids = [listing.id for listing in future_listings]
+        future_holdings = {
+            holding.listing_id: holding
+            for holding in FutureHolding.query.filter(
+                FutureHolding.user_id == current_user.id,
+                FutureHolding.listing_id.in_(listing_ids),
+            ).all()
+        }
+
+    future_payload = []
+    for listing in future_listings:
+        seconds_left = max(0.0, (listing.delivery_date - now).total_seconds())
+        minutes_left = int((seconds_left + 59) // 60)
+        holding = future_holdings.get(listing.id)
+        future_payload.append(
+            {
+                "id": listing.id,
+                "contract": f"{listing.security_symbol} FUT",
+                "minutes_left": minutes_left,
+                "delivery_display": listing.delivery_date.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "forward": simulator.price_future(listing),
+                "holding": (
+                    {
+                        "quantity": holding.quantity,
+                        "entry_price": holding.entry_price,
+                    }
+                    if holding and holding.quantity
+                    else None
+                ),
+            }
+        )
+
+    candles = _build_candles(security.symbol)
+
+    payload = {
+        "symbol": security.symbol,
+        "name": security.name,
+        "last_price": security.last_price,
+        "delta_10m": delta_10m,
+        "description": security.description,
+        "position": (
+            {
+                "quantity": position.quantity,
+                "average_price": position.average_price,
+            }
+            if position and position.quantity
+            else None
+        ),
+        "candles": candles,
+        "options": options_payload,
+        "futures": future_payload,
+    }
+
     return jsonify(payload)
 
 
