@@ -642,20 +642,45 @@ def casino():
 @login_required
 def play_slot():
     AppSetting.set("current_game_context", "casino")
-    slot_id = request.form.get("slot_id")
-    wager = request.form.get("wager", type=float)
-    if not slot_id or wager is None:
-        flash("Choose a machine and wager.", "error")
+    wants_json = request.is_json or request.accept_mimetypes.best == "application/json"
+
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        slot_id = payload.get("slot_id")
+        wager = payload.get("wager")
+    else:
+        slot_id = request.form.get("slot_id")
+        wager = request.form.get("wager")
+
+    try:
+        wager_value = float(wager) if wager is not None else None
+    except (TypeError, ValueError):
+        wager_value = None
+
+    if not slot_id or wager_value is None:
+        message = "Choose a machine and wager."
+        if wants_json:
+            return jsonify({"error": message}), 400
+        flash(message, "error")
         return redirect(url_for("main.casino"))
-    if wager <= 0:
-        flash("Wager must be positive.", "error")
+
+    if wager_value <= 0:
+        message = "Wager must be positive."
+        if wants_json:
+            return jsonify({"error": message}), 400
+        flash(message, "error")
         return redirect(url_for("main.casino"))
-    if current_user.balance < wager:
-        flash("Insufficient balance for that spin.", "error")
+
+    if current_user.balance < wager_value:
+        message = "Insufficient balance for that spin."
+        if wants_json:
+            return jsonify({"error": message}), 400
+        flash(message, "error")
         return redirect(url_for("main.casino"))
+
     manager = get_casino_manager()
     try:
-        result = manager.play_slot(slot_id, wager)
+        result = manager.play_slot(slot_id, wager_value)
         description = f"{result.machine.name} slot spin ({result.outcome})"
         record_transaction(
             current_user,
@@ -665,6 +690,25 @@ def play_slot():
             commit=False,
         )
         db.session.commit()
+        manager.publish_earnings_if_due()
+
+        if wants_json:
+            response = {
+                "machine": {
+                    "key": result.machine.key,
+                    "name": result.machine.name,
+                    "theme": result.machine.theme,
+                },
+                "reels": result.reels,
+                "outcome": result.outcome,
+                "player_delta": result.player_delta,
+                "wager": wager_value,
+                "balance": round(current_user.balance, 2),
+            }
+            if result.prize:
+                response["prize"] = result.prize.to_dict()
+            return jsonify(response)
+
         reels_display = " ".join(result.reels)
         if result.player_delta > 0:
             flash(
@@ -678,8 +722,10 @@ def play_slot():
             )
     except ValueError as exc:
         db.session.rollback()
+        manager.publish_earnings_if_due()
+        if wants_json:
+            return jsonify({"error": str(exc)}), 400
         flash(str(exc), "error")
-    manager.publish_earnings_if_due()
     return redirect(url_for("main.casino"))
 
 

@@ -28,12 +28,35 @@ CASINO_SYMBOL = "CT"
 
 
 @dataclass
+class SlotPrize:
+    symbol: str
+    label: str
+    multiplier: float
+    image: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "symbol": self.symbol,
+            "label": self.label,
+            "multiplier": self.multiplier,
+            "image": self.image,
+        }
+
+
+@dataclass
 class SlotMachine:
     key: str
     name: str
     theme: str
-    symbols: List[str]
+    prizes: List[SlotPrize]
     payout_rate: float = 0.95
+
+    @property
+    def symbols(self) -> List[str]:
+        return [prize.symbol for prize in self.prizes]
+
+    def serialize_prizes(self) -> List[Dict[str, object]]:
+        return [prize.to_dict() for prize in self.prizes]
 
 
 @dataclass
@@ -42,6 +65,7 @@ class SlotSpinResult:
     reels: List[str]
     outcome: str
     player_delta: float
+    prize: Optional[SlotPrize] = None
 
 
 @dataclass
@@ -95,16 +119,71 @@ class CasinoManager:
             payout = float(override.get("payout", default_slot_rate))
             name = str(override.get("name", slot.name))
             theme = str(override.get("theme", slot.theme))
-            symbols = (
-                list(override.get("symbols", slot.symbols))
-                if isinstance(override.get("symbols"), list)
-                else slot.symbols
-            )
+            base_prizes = [
+                SlotPrize(
+                    symbol=prize.symbol,
+                    label=prize.label,
+                    multiplier=prize.multiplier,
+                    image=prize.image,
+                )
+                for prize in slot.prizes
+            ]
+            override_symbols = override.get("symbols")
+            if isinstance(override_symbols, list):
+                updated = []
+                for index, prize in enumerate(base_prizes):
+                    try:
+                        symbol_override = override_symbols[index]
+                    except IndexError:
+                        symbol_override = prize.symbol
+                    if isinstance(symbol_override, str) and symbol_override.strip():
+                        updated.append(
+                            SlotPrize(
+                                symbol=symbol_override.strip(),
+                                label=prize.label,
+                                multiplier=prize.multiplier,
+                                image=prize.image,
+                            )
+                        )
+                    else:
+                        updated.append(prize)
+                base_prizes = updated
+
+            override_prizes = override.get("prizes")
+            prizes = base_prizes
+            if isinstance(override_prizes, list):
+                custom: List[SlotPrize] = []
+                for entry in override_prizes:
+                    if not isinstance(entry, dict):
+                        continue
+                    symbol = str(entry.get("symbol", "")).strip()
+                    if not symbol:
+                        continue
+                    label = str(entry.get("label", symbol)).strip() or symbol
+                    try:
+                        multiplier = float(entry.get("multiplier", 1.0))
+                    except (TypeError, ValueError):
+                        multiplier = 1.0
+                    image = entry.get("image")
+                    if isinstance(image, str) and image.strip():
+                        image_value = image.strip()
+                    else:
+                        image_value = None
+                    custom.append(
+                        SlotPrize(
+                            symbol=symbol,
+                            label=label,
+                            multiplier=max(0.0, multiplier),
+                            image=image_value,
+                        )
+                    )
+                if custom:
+                    prizes = custom
             slots[key] = SlotMachine(
                 key=key,
                 name=name,
                 theme=theme,
-                symbols=symbols,
+                prizes=prizes,
                 payout_rate=max(0.0, min(0.999, payout)),
             )
         self.slots = slots
@@ -132,19 +211,40 @@ class CasinoManager:
                 key="nova",
                 name="Nebula Nights",
                 theme="Cosmic auroras and shimmering stardust",
-                symbols=["🌠", "🪐", "✨", "☄️", "💫", "🌌"],
+                prizes=[
+                    SlotPrize("🌠", "Shooting Stars", 1.6),
+                    SlotPrize("🪐", "Orbiting Planets", 1.4),
+                    SlotPrize("✨", "Stellar Glints", 1.2),
+                    SlotPrize("☄️", "Comet Flash", 1.0),
+                    SlotPrize("💫", "Gravity Loop", 0.8),
+                    SlotPrize("🌌", "Galactic Glow", 0.6),
+                ],
             ),
             "neon": SlotMachine(
                 key="neon",
                 name="Neon Mirage",
                 theme="Cyberpunk skylines flickering in synthwave hues",
-                symbols=["🔮", "💎", "🎰", "🛸", "💡", "🪙"],
+                prizes=[
+                    SlotPrize("🔮", "Crystal Visions", 1.7),
+                    SlotPrize("💎", "Diamond Pulse", 1.5),
+                    SlotPrize("🎰", "Jackpot Echo", 1.3),
+                    SlotPrize("🛸", "Hover Cab", 1.1),
+                    SlotPrize("💡", "Neon Spark", 0.9),
+                    SlotPrize("🪙", "Token Toss", 0.7),
+                ],
             ),
             "abyss": SlotMachine(
                 key="abyss",
                 name="Abyssal Fortune",
                 theme="Deep-sea treasures guarded by luminous creatures",
-                symbols=["🐚", "🪸", "🐙", "🦑", "🔱", "🐠"],
+                prizes=[
+                    SlotPrize("🐚", "Pearl Cache", 1.8),
+                    SlotPrize("🪸", "Coral Bloom", 1.5),
+                    SlotPrize("🐙", "Octo Whirl", 1.2),
+                    SlotPrize("🦑", "Ink Trail", 1.0),
+                    SlotPrize("🔱", "Tidal Crest", 0.85),
+                    SlotPrize("🐠", "School Swirl", 0.65),
+                ],
             ),
         }
 
@@ -232,7 +332,14 @@ class CasinoManager:
         win_probability = slot.payout_rate / 2.0
         win_probability = max(0.0, min(1.0, win_probability))
         win = random.random() < win_probability
-        if win:
+        prize: Optional[SlotPrize] = None
+        if win and slot.prizes:
+            prize = random.choice(slot.prizes)
+            symbol = prize.symbol
+            reels = [symbol, symbol, symbol]
+            player_delta = round(wager * prize.multiplier, 2)
+            outcome = "win"
+        elif win:
             symbol = random.choice(slot.symbols)
             reels = [symbol, symbol, symbol]
             player_delta = round(wager, 2)
@@ -245,7 +352,13 @@ class CasinoManager:
             player_delta = round(-wager, 2)
             outcome = "lose"
         self._set_pending_profit(self._pending_profit - player_delta, commit=False)
-        return SlotSpinResult(machine=slot, reels=reels, outcome=outcome, player_delta=player_delta)
+        return SlotSpinResult(
+            machine=slot,
+            reels=reels,
+            outcome=outcome,
+            player_delta=player_delta,
+            prize=prize,
+        )
 
     def play_blackjack(self, wager: float) -> BlackjackResult:
         if wager <= 0:
