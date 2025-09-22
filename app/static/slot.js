@@ -199,6 +199,33 @@
       return;
     }
 
+    function triggerSpin() {
+      if (busy) {
+        return;
+      }
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
+        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+        if (form.dispatchEvent(submitEvent) && !submitEvent.defaultPrevented) {
+          form.submit();
+        }
+      }
+    }
+
+    if (lever) {
+      lever.addEventListener('click', (event) => {
+        event.preventDefault();
+        triggerSpin();
+      });
+      lever.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          triggerSpin();
+        }
+      });
+    }
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (busy) {

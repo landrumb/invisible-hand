@@ -236,18 +236,6 @@ button.danger:hover {
   color: var(--muted);
 }
 
-.slot-machine-rate {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(26, 255, 213, 0.1);
-  border: 1px solid rgba(26, 255, 213, 0.2);
-  padding: 0.35rem 0.6rem;
-  border-radius: 999px;
-  align-self: flex-start;
-}
-
 .slot-cabinet {
   display: flex;
   align-items: stretch;
@@ -341,11 +329,22 @@ button.danger:hover {
 .slot-lever {
   position: relative;
   width: 72px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding-right: 0.25rem;
   min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0;
+  padding-right: 0.25rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.slot-lever:focus-visible {
+  outline: 2px solid rgba(26, 255, 213, 0.85);
+  outline-offset: 4px;
 }
 
 .slot-lever-arm {
@@ -355,18 +354,18 @@ button.danger:hover {
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(210, 230, 255, 0.7), rgba(110, 150, 200, 0.4));
   box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.4);
-  transform-origin: top center;
+  transform-origin: bottom center;
   transition: filter 0.3s ease;
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: center;
-  padding-bottom: 36px;
+  padding-top: 16px;
 }
 
 .slot-lever-handle {
   position: absolute;
   left: 50%;
-  bottom: -18px;
+  top: -18px;
   width: 46px;
   height: 46px;
   border-radius: 50%;
@@ -379,9 +378,9 @@ button.danger:hover {
 
 .slot-lever-base {
   position: absolute;
-  bottom: -18px;
-  width: 56px;
-  height: 22px;
+  bottom: -6px;
+  width: 62px;
+  height: 26px;
   border-radius: 999px;
   background: linear-gradient(90deg, rgba(30, 45, 60, 0.8), rgba(10, 20, 30, 0.8));
   box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.6);
@@ -409,7 +408,7 @@ button.danger:hover {
     transform: rotate(0deg);
   }
   50% {
-    transform: rotate(20deg);
+    transform: rotate(-18deg);
   }
   100% {
     transform: rotate(0deg);
@@ -421,7 +420,7 @@ button.danger:hover {
     transform: translate(-50%, 0);
   }
   50% {
-    transform: translate(-50%, 36px);
+    transform: translate(-50%, 54px);
   }
   100% {
     transform: translate(-50%, 0);
