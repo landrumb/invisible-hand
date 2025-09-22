@@ -103,6 +103,7 @@
   const refreshInterval = Math.max(1000, {{ update_interval|int }} * 1000);
   const detailsEndpointTemplate = "{{ url_for('main.security_details', symbol='__SYMBOL__') }}";
   const chartStates = new Map();
+  const detailStates = new Map();
 
   function applyDeltaClass(element, value) {
     if (!element) {
@@ -442,7 +443,7 @@
     }
   }
 
-  async function loadSecurityDetails(symbol) {
+  async function loadSecurityDetails(symbol, { showLoading = true } = {}) {
     const card = document.querySelector(`.security-card[data-symbol="${symbol}"]`);
     if (!card) {
       return;
@@ -450,13 +451,37 @@
     const body = card.querySelector('.security-body');
     const chartContainer = body.querySelector('.chart-container');
     const loadingEl = chartContainer.querySelector('.chart-loading');
-    loadingEl.textContent = 'Loading chart…';
-    loadingEl.hidden = false;
-
     const optionsBody = body.querySelector('.options tbody');
     const futuresBody = body.querySelector('.futures tbody');
-    clearTable(optionsBody, 'Loading…', 6);
-    clearTable(futuresBody, 'Loading…', 5);
+
+    let state = detailStates.get(symbol);
+    if (!state) {
+      state = { lastFetched: 0, requestToken: null };
+      detailStates.set(symbol, state);
+    }
+
+    if (!showLoading) {
+      const now = Date.now();
+      if (state.requestToken) {
+        return;
+      }
+      if (state.lastFetched && now - state.lastFetched < refreshInterval * 0.6) {
+        return;
+      }
+    }
+
+    const requestToken = Symbol('details');
+    state.requestToken = requestToken;
+    detailStates.set(symbol, state);
+
+    if (showLoading) {
+      loadingEl.textContent = 'Loading chart…';
+      loadingEl.hidden = false;
+      clearTable(optionsBody, 'Loading…', 6);
+      clearTable(futuresBody, 'Loading…', 5);
+    } else {
+      loadingEl.classList.add('refreshing');
+    }
 
     const url = detailsEndpointTemplate.replace('__SYMBOL__', encodeURIComponent(symbol));
     try {
@@ -465,6 +490,10 @@
         throw new Error('Failed to fetch security details');
       }
       const data = await response.json();
+
+      if (detailStates.get(symbol)?.requestToken !== requestToken) {
+        return;
+      }
 
       const price = Number(data.last_price || 0);
       const delta = Number(data.delta_10m || 0);
@@ -528,10 +557,22 @@
       }
     } catch (err) {
       console.error(err);
-      clearTable(optionsBody, 'Failed to load options.', 6);
-      clearTable(futuresBody, 'Failed to load futures.', 5);
-      loadingEl.textContent = 'Failed to load chart data.';
-      loadingEl.hidden = false;
+      if (detailStates.get(symbol)?.requestToken === requestToken) {
+        if (showLoading) {
+          clearTable(optionsBody, 'Failed to load options.', 6);
+          clearTable(futuresBody, 'Failed to load futures.', 5);
+          loadingEl.textContent = 'Failed to load chart data.';
+          loadingEl.hidden = false;
+        }
+      }
+    } finally {
+      const latestState = detailStates.get(symbol);
+      if (latestState && latestState.requestToken === requestToken) {
+        latestState.requestToken = null;
+        latestState.lastFetched = Date.now();
+        detailStates.set(symbol, latestState);
+      }
+      loadingEl.classList.remove('refreshing');
     }
   }
 
@@ -556,6 +597,9 @@
           const delta = Number(entry.delta_10m || 0);
           deltaEl.textContent = delta.toFixed(2);
           applyDeltaClass(deltaEl, delta);
+        }
+        if (card.open) {
+          loadSecurityDetails(entry.symbol, { showLoading: false });
         }
       });
     } catch (err) {
