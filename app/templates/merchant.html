@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}Merchant Portal{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="panel">
+    <h2>Products</h2>
+    <ul class="list">
+      {% for product in products %}
+        <li>
+          <form method="post" class="inline-form">
+            <input type="hidden" name="product_id" value="{{ product.id }}">
+            <button class="link" name="action" value="select">{{ product.name }}</button>
+            <span class="amount">{{ '%.2f'|format(product.price) }}</span>
+            <span class="note">Stock: {{ product.stock }}</span>
+          </form>
+        </li>
+      {% else %}
+        <li>No products yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>Create product</h2>
+    {% if current_user.is_merchant %}
+      <form method="post" class="form">
+        <input type="hidden" name="action" value="add_product">
+        <label>Name<input type="text" name="name" required></label>
+        <label>Description<input type="text" name="description"></label>
+        <label>Price<input type="number" step="0.01" name="price" required></label>
+        <label>Stock<input type="number" name="stock" min="0" value="0"></label>
+        <button class="button" type="submit">Add product</button>
+      </form>
+    {% else %}
+      <p>Only merchants can add products.</p>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <h2>QR Checkout</h2>
+    {% if selected_product %}
+      <p>{{ selected_product.name }} — {{ '%.2f'|format(selected_product.price) }} credits</p>
+      <img class="qr" src="{{ qr_data_uri }}" alt="QR code for {{ selected_product.name }}">
+      {% if current_user.is_merchant %}
+        <a class="button" href="{{ url_for('main.process_sale', product_id=selected_product.id, buyer_id=current_user.id) }}">Process self-purchase</a>
+      {% endif %}
+    {% else %}
+      <p>Select a product to generate a QR code.</p>
+    {% endif %}
+  </article>
+
+  {% if current_user.is_merchant %}
+  <article class="panel">
+    <h2>Inventory adjustments</h2>
+    <form method="post" class="form">
+      <input type="hidden" name="action" value="update_price">
+      <label>Product
+        <select name="product_id" required>
+          {% for product in products %}
+            <option value="{{ product.id }}">{{ product.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>New price<input type="number" step="0.01" name="price" required></label>
+      <button class="button" type="submit">Update price</button>
+    </form>
+    <form method="post" class="form">
+      <input type="hidden" name="action" value="update_stock">
+      <label>Product
+        <select name="product_id" required>
+          {% for product in products %}
+            <option value="{{ product.id }}">{{ product.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>New stock<input type="number" name="stock" min="0" required></label>
+      <button class="button" type="submit">Update stock</button>
+    </form>
+  </article>
+  {% endif %}
+</section>
+{% endblock %}

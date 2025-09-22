@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Social Hour, Powered by Games</h1>
+  <p>Compete, cooperate, and earn credits to trade for snacks and prizes. Sign in to start playing.</p>
+  {% if not current_user.is_authenticated %}
+    <a class="button primary" href="{{ url_for('auth.login') }}">Sign in with Google</a>
+  {% else %}
+    <a class="button" href="{{ url_for('main.dashboard') }}">Go to Dashboard</a>
+  {% endif %}
+</section>
+{% endblock %}
