@@ -33,6 +33,7 @@ from .models import (
     Transaction,
     User,
     AppSetting,
+    MoneyRequest,
 )
 from .securities import (
     execute_equity_trade,
@@ -43,6 +44,21 @@ from .securities import (
 
 
 bp = Blueprint("main", __name__)
+
+
+def find_user_by_handle(handle: str):
+    if not handle:
+        return None
+    normalized = handle.strip().lower()
+    if not normalized:
+        return None
+    matches = User.query.filter(User.email.ilike(f"{normalized}@%"))
+    users = matches.all()
+    if not users:
+        return None
+    if len(users) > 1:
+        raise ValueError("multiple")
+    return users[0]
 
 
 def record_transaction(user, amount, description, counterparty=None, type_="game", commit=True):
@@ -93,12 +109,148 @@ def dashboard():
         .order_by(PrisonersMatch.created_at.desc())
         .first()
     )
+    target_handle = request.args.get("target", "").strip()
+    incoming_requests = (
+        MoneyRequest.query.filter_by(target_id=current_user.id, status="pending")
+        .order_by(MoneyRequest.created_at.desc())
+        .all()
+    )
+    outgoing_requests = (
+        MoneyRequest.query.filter_by(requester_id=current_user.id)
+        .order_by(MoneyRequest.created_at.desc())
+        .limit(10)
+        .all()
+    )
     return render_template(
         "dashboard.html",
         balance=current_user.balance,
         transactions=latest_transactions,
         active_match=active_match,
+        target_handle=target_handle,
+        incoming_requests=incoming_requests,
+        outgoing_requests=outgoing_requests,
+        qr_data_uri=build_qr_for_user(current_user),
     )
+
+
+@bp.route("/transfer", methods=["POST"])
+@login_required
+def handle_transfer():
+    action = request.form.get("action")
+    handle = (request.form.get("handle") or "").strip()
+    amount = request.form.get("amount", type=float)
+    message = (request.form.get("message") or "").strip()
+    redirect_target = url_for("main.dashboard", target=handle) if handle else url_for("main.dashboard")
+
+    if not amount or amount <= 0:
+        flash("Please enter a positive amount.", "error")
+        return redirect(redirect_target)
+
+    try:
+        target_user = find_user_by_handle(handle)
+    except ValueError:
+        flash("Multiple users share that handle. Please use their full email instead.", "error")
+        return redirect(redirect_target)
+
+    if not target_user:
+        flash("Could not find a user with that handle.", "error")
+        return redirect(redirect_target)
+
+    if action == "send":
+        if target_user.id == current_user.id:
+            flash("You cannot send money to yourself.", "error")
+            return redirect(redirect_target)
+        if current_user.balance < amount:
+            flash("Insufficient balance to send that amount.", "error")
+            return redirect(redirect_target)
+
+        note = f" ({message})" if message else ""
+        record_transaction(
+            current_user,
+            -amount,
+            f"Transfer to {target_user.name}{note}",
+            counterparty=target_user,
+            type_="transfer",
+            commit=False,
+        )
+        record_transaction(
+            target_user,
+            amount,
+            f"Transfer from {current_user.name}{note}",
+            counterparty=current_user,
+            type_="transfer",
+            commit=False,
+        )
+        db.session.commit()
+        flash(f"Sent {amount:.2f} credits to {target_user.name}.", "success")
+        return redirect(url_for("main.dashboard"))
+
+    if action == "request":
+        if target_user.id == current_user.id:
+            flash("You cannot request money from yourself.", "error")
+            return redirect(redirect_target)
+        money_request = MoneyRequest(
+            requester=current_user,
+            target=target_user,
+            amount=amount,
+            message=message or None,
+        )
+        db.session.add(money_request)
+        db.session.commit()
+        flash(f"Requested {amount:.2f} credits from {target_user.name}.", "success")
+        return redirect(url_for("main.dashboard"))
+
+    flash("Unknown action.", "error")
+    return redirect(url_for("main.dashboard"))
+
+
+@bp.route("/requests/<int:request_id>/respond", methods=["POST"])
+@login_required
+def respond_money_request(request_id):
+    money_request = MoneyRequest.query.get_or_404(request_id)
+    if money_request.target_id != current_user.id:
+        abort(403)
+    if money_request.status != "pending":
+        flash("This request has already been handled.", "info")
+        return redirect(url_for("main.dashboard"))
+
+    action = request.form.get("action")
+    if action == "accept":
+        if current_user.balance < money_request.amount:
+            flash("You do not have enough balance to fulfill this request.", "error")
+            return redirect(url_for("main.dashboard"))
+        note = f" ({money_request.message})" if money_request.message else ""
+        record_transaction(
+            current_user,
+            -money_request.amount,
+            f"Money request from {money_request.requester.name}{note}",
+            counterparty=money_request.requester,
+            type_="transfer",
+            commit=False,
+        )
+        record_transaction(
+            money_request.requester,
+            money_request.amount,
+            f"Money request fulfilled by {current_user.name}{note}",
+            counterparty=current_user,
+            type_="transfer",
+            commit=False,
+        )
+        money_request.status = "completed"
+        money_request.resolved_at = datetime.utcnow()
+        db.session.commit()
+        flash(f"Sent {money_request.amount:.2f} credits to {money_request.requester.name}.", "success")
+        return redirect(url_for("main.dashboard"))
+
+    if action == "decline":
+        money_request.status = "declined"
+        money_request.resolved_at = datetime.utcnow()
+        db.session.commit()
+        flash("Request declined.", "info")
+        return redirect(url_for("main.dashboard"))
+
+    flash("Unknown action.", "error")
+    return redirect(url_for("main.dashboard"))
 
 
 @bp.route("/securities")
@@ -503,6 +655,19 @@ def update_price(product, new_price):
     db.session.add(PriceHistory(product=product, price=product.price))
     db.session.commit()
     flash("Price updated.", "success")
+
+
+def build_qr_for_user(user):
+    handle = user.email.split("@")[0]
+    target_url = url_for("main.dashboard", target=handle, _external=True)
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L)
+    qr.add_data(target_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    data = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{data}"
 
 
 def build_qr_for_product(product, buyer_id):

@@ -99,6 +99,20 @@ class Transaction(db.Model):
     counterparty = db.relationship("User", foreign_keys=[counterparty_id], lazy=True)
 
 
+class MoneyRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    requester_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    target_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    message = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+    requester = db.relationship("User", foreign_keys=[requester_id], lazy=True)
+    target = db.relationship("User", foreign_keys=[target_id], lazy=True)
+
+
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
