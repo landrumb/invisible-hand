@@ -1,6 +1,7 @@
 import base64
 import io
 from datetime import datetime, timedelta
+from typing import List
 
 import qrcode
 from flask import (
@@ -707,14 +708,31 @@ def play_slot():
             }
             if result.prize:
                 response["prize"] = result.prize.to_dict()
+            if result.wins:
+                response["wins"] = [win.to_dict() for win in result.wins]
             return jsonify(response)
 
-        reels_display = " ".join(result.reels)
-        if result.player_delta > 0:
-            flash(
-                f"{description}: {reels_display} — You won {result.player_delta:.2f} credits!",
-                "success",
+        row_strings: List[str] = []
+        for row in range(3):
+            symbols = [result.reels[col][row] for col in range(len(result.reels))]
+            row_strings.append(" ".join(symbols))
+        reels_display = " / ".join(row_strings)
+        if result.wins:
+            wins_text = "Wins: " + ", ".join(
+                f"{_format_line_label(win)} ({win.prize.label})" for win in result.wins
             )
+        else:
+            wins_text = ""
+        if result.player_delta > 0:
+            message = (
+                f"{description}: {reels_display} — You won {result.player_delta:.2f} credits! {wins_text}"
+            ).strip()
+            flash(message, "success")
+        elif result.player_delta == 0:
+            message = (
+                f"{description}: {reels_display} — Broke even. {wins_text}"
+            ).strip()
+            flash(message, "info")
         else:
             flash(
                 f"{description}: {reels_display} — Lost {abs(result.player_delta):.2f} credits.",
@@ -727,6 +745,19 @@ def play_slot():
             return jsonify({"error": str(exc)}), 400
         flash(str(exc), "error")
     return redirect(url_for("main.casino"))
+
+
+def _format_line_label(win: "SlotLineWin") -> str:
+    labels = {
+        "row": ["Top row", "Middle row", "Bottom row"],
+        "column": ["Left column", "Center column", "Right column"],
+        "diagonal": ["Main diagonal", "Counter diagonal"],
+    }
+    options = labels.get(win.line_type, [])
+    try:
+        return options[win.index]
+    except IndexError:
+        return win.line_type.capitalize()
 
 
 @bp.route("/casino/blackjack", methods=["POST"])

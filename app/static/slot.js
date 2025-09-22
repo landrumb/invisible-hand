@@ -5,6 +5,12 @@
   }
 
   const STATUS_CLASSES = ['is-win', 'is-lose', 'is-error'];
+  const FACE_SELECTOR = '[data-role="face"]';
+  const LINE_LABELS = {
+    row: ['Top row', 'Middle row', 'Bottom row'],
+    column: ['Left column', 'Center column', 'Right column'],
+    diagonal: ['Main diagonal', 'Counter diagonal'],
+  };
 
   function parsePrizes(machine) {
     try {
@@ -69,6 +75,97 @@
     statusEl.textContent = message;
   }
 
+  function clearHighlights(machine) {
+    machine.classList.remove('has-line-wins');
+    machine.querySelectorAll('.slot-face').forEach((face) => {
+      face.classList.remove('is-line-win');
+    });
+  }
+
+  function applyWins(machine, wins) {
+    if (!Array.isArray(wins) || !wins.length) {
+      return;
+    }
+    machine.classList.add('has-line-wins');
+    wins.forEach((win) => {
+      const coords = Array.isArray(win.coordinates) ? win.coordinates : [];
+      coords.forEach((pair) => {
+        let columnIndex;
+        let rowIndex;
+        if (Array.isArray(pair)) {
+          columnIndex = Number(pair[0]);
+          rowIndex = Number(pair[1]);
+        } else if (pair && typeof pair === 'object') {
+          columnIndex = Number(pair.column);
+          rowIndex = Number(pair.row);
+        } else {
+          columnIndex = Number(pair);
+          rowIndex = Number(pair);
+        }
+        if (!Number.isFinite(columnIndex) || !Number.isFinite(rowIndex)) {
+          return;
+        }
+        const selector = `${FACE_SELECTOR}[data-column="${columnIndex}"][data-row="${rowIndex}"]`;
+        const face = machine.querySelector(selector);
+        if (face) {
+          face.classList.add('is-line-win');
+        }
+      });
+    });
+  }
+
+  function describeLine(win) {
+    if (!win) {
+      return '';
+    }
+    const labels = LINE_LABELS[win.line_type] || [];
+    let label = labels[win.index] || (win.line_type ? win.line_type : 'line');
+    if (label) {
+      label = label.charAt(0).toUpperCase() + label.slice(1);
+    }
+    const prize = win.prize && typeof win.prize === 'object' ? win.prize : {};
+    const prizeLabelRaw =
+      typeof prize.label === 'string' && prize.label
+        ? prize.label
+        : typeof prize.symbol === 'string'
+          ? prize.symbol
+          : '';
+    const prizeLabel = prizeLabelRaw;
+    const multiplierSource = win.multiplier != null ? win.multiplier : prize.multiplier;
+    const multiplier = Number(multiplierSource);
+    const payout = Number(win.payout);
+    const pieces = [];
+    if (label) {
+      pieces.push(label);
+    }
+    if (prizeLabel) {
+      pieces.push(prizeLabel);
+    }
+    if (Number.isFinite(multiplier)) {
+      pieces.push(`(${multiplier.toFixed(2)}×)`);
+    }
+    if (Number.isFinite(payout)) {
+      pieces.push(`${payout.toFixed(2)} credits`);
+    }
+    return pieces.join(' ');
+  }
+
+  function describeGrid(reels) {
+    if (!Array.isArray(reels) || !reels.length) {
+      return '';
+    }
+    const rows = [];
+    for (let row = 0; row < 3; row += 1) {
+      const rowSymbols = [];
+      for (let col = 0; col < reels.length; col += 1) {
+        const column = Array.isArray(reels[col]) ? reels[col] : [];
+        rowSymbols.push(column[row] || '❓');
+      }
+      rows.push(rowSymbols.join(' '));
+    }
+    return rows.join(' / ');
+  }
+
   machines.forEach((machine) => {
     const prizes = parsePrizes(machine);
     const reels = Array.from(machine.querySelectorAll('.slot-reel'));
@@ -78,10 +175,16 @@
     const defaultPrize = prizes[0] || null;
     let busy = false;
 
-    reels.forEach((reel, index) => {
-      const face = reel.querySelector('[data-role="face"]');
-      const seed = prizes[index % prizes.length] || defaultPrize;
-      updateFace(face, seed || null);
+    const facesByColumn = reels.map((reel, columnIndex) => {
+      const faces = Array.from(reel.querySelectorAll(FACE_SELECTOR));
+      faces.forEach((face, rowIndex) => {
+        face.dataset.column = String(columnIndex);
+        face.dataset.row = String(rowIndex);
+        const seedIndex = prizes.length ? (columnIndex + rowIndex) % prizes.length : 0;
+        const seedPrize = prizes[seedIndex] || defaultPrize;
+        updateFace(face, seedPrize || null);
+      });
+      return faces;
     });
 
     machine.addEventListener('mouseenter', () => {
@@ -117,6 +220,7 @@
       }
 
       busy = true;
+      clearHighlights(machine);
       setStatus(statusEl, 'Spinning...', null);
       machine.classList.add('is-spinning');
       machine.classList.add('lever-pulling');
@@ -124,11 +228,16 @@
         lever.classList.add('is-active');
       }
 
-      reels.forEach((reel, index) => {
-        const face = reel.querySelector('[data-role="face"]');
+      reels.forEach((reel, columnIndex) => {
         reel.classList.add('spinning');
-        const shimmerPrize = prizes[(index + 1) % prizes.length] || defaultPrize;
-        updateFace(face, shimmerPrize || null, { placeholder: true });
+        const faces = facesByColumn[columnIndex] || [];
+        faces.forEach((face, rowIndex) => {
+          const shimmerIndex = prizes.length
+            ? (columnIndex + rowIndex + 1) % prizes.length
+            : 0;
+          const shimmerPrize = prizes[shimmerIndex] || defaultPrize;
+          updateFace(face, shimmerPrize || null, { placeholder: true });
+        });
       });
 
       window.setTimeout(() => {
@@ -180,51 +289,65 @@
         return;
       }
 
-      const reelResults = Array.isArray(payload.reels) ? payload.reels : [];
+      const reelResults = Array.isArray(payload.reels)
+        ? payload.reels.map((column) => (Array.isArray(column) ? column.slice(0, 3) : []))
+        : [];
       const resultPrize = payload.prize || null;
-      const outcome = payload.outcome || 'lose';
       const playerDelta = Number(payload.player_delta || 0);
+      const wins = Array.isArray(payload.wins) ? payload.wins : [];
       const stopDelay = 450;
 
-      reels.forEach((reel, index) => {
-        const face = reel.querySelector('[data-role="face"]');
-        const symbol = reelResults[index];
-        const matchedPrize = prizes.find((prize) => prize.symbol === symbol) ||
-          (resultPrize && resultPrize.symbol === symbol ? resultPrize : null);
+      reels.forEach((reel, columnIndex) => {
+        const faces = facesByColumn[columnIndex] || [];
+        const columnSymbols = Array.isArray(reelResults[columnIndex])
+          ? reelResults[columnIndex]
+          : [];
         window.setTimeout(() => {
           reel.classList.remove('spinning');
-          updateFace(face, matchedPrize || { symbol });
-          if (index === reels.length - 1) {
+          faces.forEach((face, rowIndex) => {
+            const symbol = columnSymbols[rowIndex];
+            const matchedPrize = prizes.find((prize) => prize.symbol === symbol) ||
+              (resultPrize && resultPrize.symbol === symbol ? resultPrize : null);
+            updateFace(face, matchedPrize || { symbol });
+          });
+          if (columnIndex === reels.length - 1) {
             finalize();
           }
-        }, stopDelay * (index + 1));
+        }, stopDelay * (columnIndex + 1));
       });
 
       function finalize() {
         machine.classList.remove('is-spinning');
         busy = false;
-        const joined = reelResults.join(' ');
-        if (outcome === 'win') {
-          const multiplier = resultPrize && resultPrize.multiplier
-            ? Number(resultPrize.multiplier)
-            : wager > 0
-              ? Number((playerDelta / wager).toFixed(2))
-              : 0;
-          const payoutText = Number.isFinite(playerDelta)
-            ? `Won ${playerDelta.toFixed(2)} credits.`
-            : 'Winner!';
-          const legendText = multiplier ? `(${multiplier.toFixed(2)}× wager)` : '';
-          setStatus(
-            statusEl,
-            `Jackpot! ${joined} ${payoutText} ${legendText}`.trim(),
-            'is-win',
-          );
-        } else {
-          const lossText = Number.isFinite(playerDelta)
-            ? `Lost ${Math.abs(playerDelta).toFixed(2)} credits.`
-            : 'No payout this time.';
-          setStatus(statusEl, `${joined || 'No match'} — ${lossText}`, 'is-lose');
+        applyWins(machine, wins);
+        const gridSummary = describeGrid(reelResults);
+        const winDescriptions = wins.map(describeLine).filter(Boolean);
+        let variant = null;
+        if (playerDelta > 0) {
+          variant = 'is-win';
+        } else if (playerDelta < 0) {
+          variant = 'is-lose';
         }
+        const netText = Number.isFinite(playerDelta)
+          ? playerDelta > 0
+            ? `Won ${playerDelta.toFixed(2)} credits.`
+            : playerDelta === 0
+              ? 'Broke even.'
+              : `Lost ${Math.abs(playerDelta).toFixed(2)} credits.`
+          : '';
+        const messageParts = [];
+        if (gridSummary) {
+          messageParts.push(gridSummary);
+        }
+        if (winDescriptions.length) {
+          messageParts.push(`Lines: ${winDescriptions.join(' • ')}`);
+        } else {
+          messageParts.push('No line wins.');
+        }
+        if (netText) {
+          messageParts.push(netText);
+        }
+        setStatus(statusEl, messageParts.join(' — '), variant);
       }
 
       function finishWithError(message) {
@@ -234,6 +357,7 @@
           lever.classList.remove('is-active');
         }
         reels.forEach((reel) => reel.classList.remove('spinning'));
+        clearHighlights(machine);
         busy = false;
         setStatus(statusEl, message, 'is-error');
       }

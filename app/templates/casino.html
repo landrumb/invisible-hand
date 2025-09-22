@@ -28,22 +28,25 @@
         <div class="slot-cabinet">
           <div class="slot-display" role="group" aria-label="Slot reels">
             {% set prize_count = slot.prizes|length %}
-            {% for i in range(3) %}
-              {% set default_prize = slot.prizes[i % prize_count] if prize_count else None %}
-              <div class="slot-reel" data-index="{{ i }}">
-                <div class="slot-face" data-role="face">
-                  {% if default_prize and default_prize.image %}
-                    <img src="{{ default_prize.image }}" alt="{{ default_prize.label }}">
-                  {% else %}
-                    <span>{{ default_prize.symbol if default_prize else '❓' }}</span>
-                  {% endif %}
-                </div>
+            {% for col in range(3) %}
+              <div class="slot-reel" data-index="{{ col }}">
+                {% for row in range(3) %}
+                  {% set default_prize = slot.prizes[(col + row) % prize_count] if prize_count else None %}
+                  <div class="slot-face" data-role="face" data-row="{{ row }}" data-column="{{ col }}">
+                    {% if default_prize and default_prize.image %}
+                      <img src="{{ default_prize.image }}" alt="{{ default_prize.label }}">
+                    {% else %}
+                      <span>{{ default_prize.symbol if default_prize else '❓' }}</span>
+                    {% endif %}
+                  </div>
+                {% endfor %}
               </div>
             {% endfor %}
           </div>
           <div class="slot-lever" aria-hidden="true">
-            <div class="slot-lever-arm"></div>
-            <div class="slot-lever-handle"></div>
+            <div class="slot-lever-arm">
+              <div class="slot-lever-handle"></div>
+            </div>
             <div class="slot-lever-base"></div>
           </div>
         </div>
@@ -65,7 +68,7 @@
                 </div>
                 <div class="slot-legend-text">
                   <span class="slot-legend-label">{{ prize.label }}</span>
-                  <span class="slot-legend-payout">Pays {{ '%.2f'|format(prize.multiplier) }}× wager</span>
+                  <span class="slot-legend-payout">Line win pays {{ '%.2f'|format(prize.multiplier) }}× wager</span>
                 </div>
               </li>
             {% endfor %}
