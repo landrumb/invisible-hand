@@ -1,0 +1,47 @@
+[risk]
+risk_free_rate = 0.015
+
+[market]
+update_interval_seconds = 5
+
+[securities.FLY]
+name = "FlightLift Yield Cooperative"
+description = "A consortium of drone pilots and cargo dirigibles that profit from the logistics boom."
+initial_price = 128.0
+drift = 0.035
+volatility = 0.28
+mean_reversion = 0.55
+fundamental_value = 130.0
+liquidity = 0.45
+impact = 0.018
+options_tenors = [7, 21, 45]
+options_strike_multipliers = [0.9, 1.0, 1.1]
+futures_tenors = [14, 35]
+
+[securities.CT]
+name = "Carbon Tether"
+description = "Tokenized carbon removal contracts with regulated off-take agreements."
+initial_price = 42.0
+drift = 0.02
+volatility = 0.18
+mean_reversion = 0.75
+fundamental_value = 40.0
+liquidity = 0.6
+impact = 0.012
+options_tenors = [14, 30, 60]
+options_strike_multipliers = [0.85, 1.0, 1.15]
+futures_tenors = [30, 60]
+
+[securities.MS]
+name = "Metasynaptic Systems"
+description = "Brain-computer interface firmware with cyclical hardware demand."
+initial_price = 215.0
+drift = 0.05
+volatility = 0.35
+mean_reversion = 0.5
+fundamental_value = 210.0
+liquidity = 0.35
+impact = 0.022
+options_tenors = [7, 28, 56]
+options_strike_multipliers = [0.85, 1.0, 1.2]
+futures_tenors = [21, 63]
