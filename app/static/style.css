@@ -138,33 +138,6 @@ button.danger:hover {
   grid-column: 1 / -1;
 }
 
-.casino-status {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.casino-status .label {
-  display: block;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  color: var(--muted);
-  letter-spacing: 0.08em;
-}
-
-.casino-status .value {
-  font-size: 1.1rem;
-  font-weight: 700;
-}
-
-.casino-status .wide {
-  grid-column: 1 / -1;
-  padding: 0.75rem;
-  background: rgba(26, 255, 213, 0.05);
-  border-radius: 6px;
-}
-
 .casino-grid {
   display: grid;
   gap: 1.5rem;
@@ -191,12 +164,6 @@ button.danger:hover {
   font-size: 0.85rem;
   color: var(--muted);
   min-height: 2.4rem;
-}
-
-.casino-machine .payout {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--accent);
 }
 
 .casino-form {

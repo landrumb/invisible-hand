@@ -466,11 +466,9 @@ def single_player():
 def casino():
     manager = get_casino_manager()
     AppSetting.set("current_game_context", "casino")
-    status = manager.get_status()
     return render_template(
         "casino.html",
         slots=manager.get_slots(),
-        status=status,
         manager=manager,
     )
 
