@@ -41,6 +41,7 @@ from .securities import (
     execute_option_trade,
     get_simulator,
 )
+from .casino import get_casino_manager
 
 
 bp = Blueprint("main", __name__)
@@ -458,6 +459,115 @@ def single_player():
         flash(f"You earned {reward:.2f} credits!", "success")
         return redirect(url_for("main.single_player"))
     return render_template("single_player.html", reward=reward)
+
+
+@bp.route("/casino")
+@login_required
+def casino():
+    manager = get_casino_manager()
+    AppSetting.set("current_game_context", "casino")
+    status = manager.get_status()
+    return render_template(
+        "casino.html",
+        slots=manager.get_slots(),
+        status=status,
+        manager=manager,
+    )
+
+
+@bp.route("/casino/slot", methods=["POST"])
+@login_required
+def play_slot():
+    AppSetting.set("current_game_context", "casino")
+    slot_id = request.form.get("slot_id")
+    wager = request.form.get("wager", type=float)
+    if not slot_id or wager is None:
+        flash("Choose a machine and wager.", "error")
+        return redirect(url_for("main.casino"))
+    if wager <= 0:
+        flash("Wager must be positive.", "error")
+        return redirect(url_for("main.casino"))
+    if current_user.balance < wager:
+        flash("Insufficient balance for that spin.", "error")
+        return redirect(url_for("main.casino"))
+    manager = get_casino_manager()
+    try:
+        result = manager.play_slot(slot_id, wager)
+        description = f"{result.machine.name} slot spin ({result.outcome})"
+        record_transaction(
+            current_user,
+            result.player_delta,
+            description,
+            type_="casino",
+            commit=False,
+        )
+        db.session.commit()
+        reels_display = " ".join(result.reels)
+        if result.player_delta > 0:
+            flash(
+                f"{description}: {reels_display} — You won {result.player_delta:.2f} credits!",
+                "success",
+            )
+        else:
+            flash(
+                f"{description}: {reels_display} — Lost {abs(result.player_delta):.2f} credits.",
+                "warning",
+            )
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    manager.publish_earnings_if_due()
+    return redirect(url_for("main.casino"))
+
+
+@bp.route("/casino/blackjack", methods=["POST"])
+@login_required
+def play_blackjack():
+    AppSetting.set("current_game_context", "casino")
+    wager = request.form.get("wager", type=float)
+    if wager is None:
+        flash("Enter a wager for blackjack.", "error")
+        return redirect(url_for("main.casino"))
+    if wager <= 0:
+        flash("Wager must be positive.", "error")
+        return redirect(url_for("main.casino"))
+    manager = get_casino_manager()
+    if current_user.balance < wager:
+        flash("Insufficient balance for that hand.", "error")
+        return redirect(url_for("main.casino"))
+    try:
+        result = manager.play_blackjack(wager)
+        description = f"Blackjack hand ({result.outcome})"
+        record_transaction(
+            current_user,
+            result.player_delta,
+            description,
+            type_="casino",
+            commit=False,
+        )
+        db.session.commit()
+        player_hand = ", ".join(result.player_cards)
+        dealer_hand = ", ".join(result.dealer_cards)
+        if result.player_delta > 0:
+            flash(
+                f"{description}: You {result.outcome}! Player {player_hand} ({result.player_total}) vs Dealer {dealer_hand} ({result.dealer_total}). Won {result.player_delta:.2f} credits.",
+                "success",
+            )
+        elif result.player_delta < 0:
+            flash(
+                f"{description}: Dealer showed {dealer_hand} ({result.dealer_total}). Lost {abs(result.player_delta):.2f} credits.",
+                "warning",
+            )
+        else:
+            flash(
+                f"{description}: Push with {player_hand} ({result.player_total}) against {dealer_hand} ({result.dealer_total}).",
+                "info",
+            )
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    manager.publish_earnings_if_due()
+    return redirect(url_for("main.casino"))
 
 
 @bp.route("/prisoners", methods=["GET", "POST"])

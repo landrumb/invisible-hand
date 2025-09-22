@@ -20,6 +20,7 @@
           <a href="{{ url_for('main.single_player') }}">Solo Game</a>
           <a href="{{ url_for('main.prisoners_dilemma') }}">Prisoner's Dilemma</a>
           <a href="{{ url_for('main.securities_hub') }}">Securities</a>
+          <a href="{{ url_for('main.casino') }}">Casino</a>
           {% if current_user.is_merchant %}
             <a href="{{ url_for('main.merchant_portal') }}">Merchant</a>
           {% endif %}
