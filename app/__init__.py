@@ -50,12 +50,14 @@ def create_app(test_config=None):
     from .auth import bp as auth_bp
     from .routes import bp as main_bp
     from .securities import init_market
+    from .casino import init_casino
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
 
     register_cli_commands(app)
     init_market(app)
+    init_casino(app)
 
     @app.context_processor
     def inject_now():

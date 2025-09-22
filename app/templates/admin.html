@@ -40,6 +40,21 @@
   </article>
 
   <article class="panel">
+    <h2>Casino Earnings</h2>
+    {% set status = casino_status or {} %}
+    <ul class="list">
+      <li>Pending profit: {{ '%.2f'|format(status.get('pending_profit', 0.0) or 0.0) }} credits</li>
+      <li>Last publication: {{ status.get('last_publish_at').strftime('%Y-%m-%d %H:%M:%S') if status.get('last_publish_at') else 'Never' }}</li>
+      <li>Next scheduled: {{ status.get('next_publish_at').strftime('%Y-%m-%d %H:%M:%S') if status.get('next_publish_at') else 'Pending' }}</li>
+      <li>Last summary: {{ status.get('last_summary') or 'No publication yet.' }}</li>
+    </ul>
+    <form method="post" action="{{ url_for('main.admin_casino_publish') }}" class="form">
+      <button class="button" type="submit">Publish Earnings Now</button>
+    </form>
+    <p class="note">Immediately run the casino dividend/buyback cycle regardless of schedule.</p>
+  </article>
+
+  <article class="panel">
     <h2>Pricing & Reward Sensitivities</h2>
     <form method="post" action="{{ url_for('main.update_pricing_settings') }}" class="form">
       <label>Increase on purchase (%)

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Casino · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel wide">
+  <h1>Casino Arcade</h1>
+  <p>
+    Welcome to the high-gloss floor of the Invisible Hand arcade. Grab a seat, pick your favorite
+    machine, and chase a hot streak — the house will keep tabs while you focus on the fun.
+  </p>
+</section>
+
+<section class="panel wide">
+  <h2>Slots Lobby</h2>
+  <div class="casino-grid">
+    {% for slot in slots %}
+      <div class="casino-machine">
+        <h3>{{ slot.name }}</h3>
+        <p class="theme">{{ slot.theme }}</p>
+        <form method="post" action="{{ url_for('main.play_slot') }}" class="casino-form">
+          <input type="hidden" name="slot_id" value="{{ slot.key }}">
+          <label>
+            Wager
+            <input type="number" name="wager" min="0.01" step="0.01" value="5.00" required>
+          </label>
+          <button type="submit" class="primary">Spin</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel wide">
+  <h2>Quick Blackjack</h2>
+  <p>Hands resolve automatically with classic rules — stand on 17, watch the dealer draw, and see who takes the pot.</p>
+  <form method="post" action="{{ url_for('main.play_blackjack') }}" class="casino-form blackjack">
+    <label>
+      Wager ({{ manager.blackjack_min_bet|round(2) }} – {{ manager.blackjack_max_bet|round(2) }})
+      <input type="number" name="wager" step="0.01" min="{{ manager.blackjack_min_bet }}" max="{{ manager.blackjack_max_bet }}" value="{{ manager.blackjack_min_bet }}" required>
+    </label>
+    <button type="submit" class="primary">Deal</button>
+  </form>
+</section>
+{% endblock %}

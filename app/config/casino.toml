@@ -1,0 +1,16 @@
+[payouts]
+default_slot = 0.95
+
+[slots.nova]
+payout = 0.96
+
+[slots.neon]
+payout = 0.94
+
+[slots.abyss]
+payout = 0.95
+
+[blackjack]
+min_bet = 5.0
+max_bet = 250.0
+blackjack_payout = 1.5
