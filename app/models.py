@@ -22,7 +22,13 @@ class User(UserMixin, db.Model):
     role = db.Column(SqlEnum(Role), default=Role.PLAYER, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    transactions = db.relationship("Transaction", backref="user", lazy=True)
+    transactions = db.relationship(
+        "Transaction",
+        foreign_keys="Transaction.user_id",
+        primaryjoin="User.id == Transaction.user_id",
+        backref=db.backref("user", lazy=True),
+        lazy=True,
+    )
 
     def get_id(self):
         return str(self.id)
