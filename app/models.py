@@ -138,3 +138,46 @@ class PrisonersMatch(db.Model):
 
     def both_choices_made(self):
         return self.player1_choice is not None and self.player2_choice is not None
+
+
+class AppSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(120), unique=True, nullable=False)
+    value = db.Column(db.String(255), nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    @staticmethod
+    def get(key: str, default: str | None = None) -> str | None:
+        try:
+            setting = AppSetting.query.filter_by(key=key).first()
+            return setting.value if setting else default
+        except Exception:
+            # Table may not exist yet; return default
+            return default
+
+    @staticmethod
+    def set(key: str, value: str) -> None:
+        try:
+            setting = AppSetting.query.filter_by(key=key).first()
+        except Exception:
+            # Attempt to create missing tables and retry once
+            db.create_all()
+            setting = AppSetting.query.filter_by(key=key).first()
+        if setting is None:
+            setting = AppSetting(key=key, value=value, updated_at=datetime.utcnow())
+            db.session.add(setting)
+        else:
+            setting.value = value
+            setting.updated_at = datetime.utcnow()
+        db.session.commit()
+
+    @staticmethod
+    def delete(key: str) -> None:
+        try:
+            setting = AppSetting.query.filter_by(key=key).first()
+            if setting is not None:
+                db.session.delete(setting)
+                db.session.commit()
+        except Exception:
+            # Table may not exist yet; ignore
+            return

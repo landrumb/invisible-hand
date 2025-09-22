@@ -24,6 +24,7 @@ from .models import (
     Role,
     Transaction,
     User,
+    AppSetting,
 )
 
 
@@ -40,6 +41,17 @@ def record_transaction(user, amount, description, counterparty=None, type_="game
         type=type_,
     )
     db.session.add(txn)
+    # If this is a positive game reward (player earned credits), reduce future game rewards via per-game multiplier
+    if type_ == "game" and amount > 0:
+        try:
+            game_key = AppSetting.get("current_game_context", None)
+            if game_key:
+                dec_pct = float(AppSetting.get(f"game:{game_key}:decrease_pct", AppSetting.get("game_reward_decrease_pct", "5.0") or "5.0"))
+                current_mult = float(AppSetting.get(f"game:{game_key}:multiplier", "1.0") or "1.0")
+                new_mult = max(0.0, current_mult * (1.0 - dec_pct / 100.0))
+                AppSetting.set(f"game:{game_key}:multiplier", f"{new_mult}")
+        except Exception:
+            pass
     if commit:
         db.session.commit()
     return txn
@@ -78,7 +90,14 @@ def dashboard():
 @bp.route("/single-player", methods=["GET", "POST"])
 @login_required
 def single_player():
-    reward = 5.0
+    base_reward = 5.0
+    # Use per-game multiplier keyed by 'single_player'
+    AppSetting.set("current_game_context", "single_player")
+    try:
+        mult = float(AppSetting.get("game:single_player:multiplier", "1.0") or "1.0")
+    except Exception:
+        mult = 1.0
+    reward = round(base_reward * mult, 2)
     if request.method == "POST":
         record_transaction(current_user, reward, "Won the solo clicker game")
         flash(f"You earned {reward:.2f} credits!", "success")
@@ -188,10 +207,19 @@ def submit_choice(match, user, choice):
 
 def resolve_match(match):
     payoff = PAYOFFS[(match.player1_choice, match.player2_choice)]
+    # Use per-game multiplier keyed by 'prisoners'
+    AppSetting.set("current_game_context", "prisoners")
+    try:
+        mult = float(AppSetting.get("game:prisoners:multiplier", "1.0") or "1.0")
+    except Exception:
+        mult = 1.0
+    # Scale only positive rewards by multiplier; penalties remain unchanged
+    p1_amount = payoff[0] * mult if payoff[0] > 0 else payoff[0]
+    p2_amount = payoff[1] * mult if payoff[1] > 0 else payoff[1]
     player1 = match.player1
     player2 = match.player2
-    record_transaction(player1, payoff[0], f"Prisoner's dilemma: {match.player1_choice}", counterparty=player2)
-    record_transaction(player2, payoff[1], f"Prisoner's dilemma: {match.player2_choice}", counterparty=player1)
+    record_transaction(player1, p1_amount, f"Prisoner's dilemma: {match.player1_choice}", counterparty=player2)
+    record_transaction(player2, p2_amount, f"Prisoner's dilemma: {match.player2_choice}", counterparty=player1)
     match.status = "completed"
     match.resolved_at = datetime.utcnow()
     db.session.commit()
@@ -244,6 +272,16 @@ def merchant_portal():
                 db.session.commit()
                 update_price(product, price)
                 flash("Product created.", "success")
+            return redirect(url_for("main.merchant_portal"))
+        elif action == "update_product_increase_pct" and current_user.is_merchant and product_id:
+            try:
+                pct = float(request.form.get("increase_pct", ""))
+                if pct < 0:
+                    raise ValueError("Percentage must be non-negative")
+                AppSetting.set(f"product:{int(product_id)}:increase_pct", str(pct))
+                flash("Per-product sensitivity saved.", "success")
+            except Exception as exc:
+                flash(f"Failed to save per-product sensitivity: {exc}", "error")
             return redirect(url_for("main.merchant_portal"))
         else:
             return redirect(url_for("main.merchant_portal"))
@@ -314,8 +352,16 @@ def process_sale(product_id):
             type_="sale",
             commit=False,
         )
-        db.session.commit()
-        flash("Sale completed.", "success")
+        # Increase price on purchase using admin-controlled sensitivity
+        try:
+            # Per-product override: product:{id}:increase_pct falls back to global price_increase_pct
+            inc_pct = float(AppSetting.get(f"product:{product.id}:increase_pct", AppSetting.get("price_increase_pct", "5.0") or "5.0"))
+            new_price = product.price * (1 + inc_pct / 100.0)
+            update_price(product, new_price)
+            flash("Sale completed.", "success")
+        except Exception as exc:
+            db.session.commit()
+            flash(f"Sale completed, but price update failed: {exc}", "warning")
         return redirect(url_for("main.merchant_portal"))
 
     qr_data_uri = build_qr_for_product(product, buyer_id or current_user.id)
@@ -337,6 +383,12 @@ def admin_dashboard():
     price_history = PriceHistory.query.order_by(PriceHistory.timestamp.desc()).limit(50).all()
     recent_transactions = Transaction.query.order_by(Transaction.created_at.desc()).limit(20).all()
     stats = build_price_stats(products)
+    default_increase = AppSetting.get("price_increase_pct", "5.0")
+    # Defaults for per-game settings
+    sp_dec = AppSetting.get("game:single_player:decrease_pct", AppSetting.get("game_reward_decrease_pct", "5.0"))
+    sp_mult = AppSetting.get("game:single_player:multiplier", "1.0")
+    pd_dec = AppSetting.get("game:prisoners:decrease_pct", AppSetting.get("game_reward_decrease_pct", "5.0"))
+    pd_mult = AppSetting.get("game:prisoners:multiplier", "1.0")
     return render_template(
         "admin.html",
         products=products,
@@ -344,6 +396,11 @@ def admin_dashboard():
         transactions=recent_transactions,
         stats=stats,
         users=users,
+        price_increase_pct=default_increase,
+        sp_dec=sp_dec,
+        sp_mult=sp_mult,
+        pd_dec=pd_dec,
+        pd_mult=pd_mult,
     )
 
 
@@ -411,3 +468,23 @@ def build_price_stats(products):
             }
         )
     return stats
+
+
+@bp.route("/admin/settings/pricing", methods=["POST"])
+@login_required
+def update_pricing_settings():
+    if not current_user.is_admin:
+        abort(403)
+    try:
+        inc = float(request.form.get("price_increase_pct", "5"))
+        sp_dec = float(request.form.get("sp_dec", "5"))
+        pd_dec = float(request.form.get("pd_dec", "5"))
+        if inc < 0 or sp_dec < 0 or pd_dec < 0:
+            raise ValueError("Sensitivities must be non-negative")
+        AppSetting.set("price_increase_pct", str(inc))
+        AppSetting.set("game:single_player:decrease_pct", str(sp_dec))
+        AppSetting.set("game:prisoners:decrease_pct", str(pd_dec))
+        flash("Sensitivities updated.", "success")
+    except Exception as exc:
+        flash(f"Failed to update settings: {exc}", "error")
+    return redirect(url_for("main.admin_dashboard"))

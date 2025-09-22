@@ -76,6 +76,20 @@
       <label>New stock<input type="number" name="stock" min="0" required></label>
       <button class="button" type="submit">Update stock</button>
     </form>
+    <form method="post" class="form">
+      <input type="hidden" name="action" value="update_product_increase_pct">
+      <label>Product
+        <select name="product_id" required>
+          {% for product in products %}
+            <option value="{{ product.id }}">{{ product.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Per-product price increase (%)
+        <input type="number" step="0.1" name="increase_pct" min="0">
+      </label>
+      <button class="button" type="submit">Save per-product sensitivity</button>
+    </form>
   </article>
   {% endif %}
 </section>
