@@ -498,9 +498,16 @@ def init_market(app) -> MarketSimulator:
     simulator = MarketSimulator(app, config_path)
     simulator.ensure_initialized()
 
-    @app.before_first_request
-    def _start_market_thread() -> None:  # pragma: no cover - background thread
-        simulator.start()
+    # Start the simulator on the first incoming request, once per process.
+    @app.before_request
+    def _ensure_market_running() -> None:  # pragma: no cover - background thread
+        if not getattr(app, "_market_thread_started", False):
+            simulator.start()
+            setattr(app, "_market_thread_started", True)
+
+    # Ensure the background thread is stopped when the process exits.
+    import atexit  # Local import to avoid unnecessary global dependency at import time
+    atexit.register(simulator.stop)
 
     app.market_simulator = simulator
     return simulator
