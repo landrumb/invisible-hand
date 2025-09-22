@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="panel">
+    <h2>{{ current_user.name }}</h2>
+    <p class="stat">Balance: <strong>{{ '%.2f'|format(balance) }}</strong></p>
+    <p class="stat">Role: <strong>{{ current_user.role.value|capitalize }}</strong></p>
+    <div class="actions">
+      <a class="button" href="{{ url_for('main.single_player') }}">Play solo game</a>
+      <a class="button" href="{{ url_for('main.prisoners_dilemma') }}">Enter Prisoner's Dilemma</a>
+    </div>
+  </article>
+  <article class="panel">
+    <h3>Recent Transactions</h3>
+    <ul class="list">
+      {% for txn in transactions %}
+        <li>
+          <span>{{ txn.created_at.strftime('%H:%M:%S') }}</span>
+          <span>{{ txn.description }}</span>
+          <span class="amount {{ 'positive' if txn.amount >= 0 else 'negative' }}">{{ '%.2f'|format(txn.amount) }}</span>
+        </li>
+      {% else %}
+        <li>No transactions yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  {% if active_match %}
+    <article class="panel">
+      <h3>Active Match</h3>
+      <p>You are matched with {{ active_match.player1.name if active_match.player2_id == current_user.id else active_match.player2.name }}.</p>
+      <p>Status: {{ active_match.status|replace('_', ' ')|title }}</p>
+      {% if active_match.status != 'completed' %}
+        <a class="button" href="{{ url_for('main.prisoners_dilemma') }}">Go to match</a>
+      {% endif %}
+    </article>
+  {% endif %}
+</section>
+{% endblock %}

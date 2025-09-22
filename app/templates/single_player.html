@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Solo Game{% endblock %}
+{% block content %}
+<section class="panel game">
+  <h2>Incremental Clicker Prototype</h2>
+  <p>Tap the button to run a profitable side hustle and earn credits.</p>
+  <form method="post">
+    <button class="button primary" type="submit">Run the hustle (+{{ '%.2f'|format(reward) }})</button>
+  </form>
+</section>
+{% endblock %}

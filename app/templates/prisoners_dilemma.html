@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Prisoner's Dilemma{% endblock %}
+{% block content %}
+<section class="panel game">
+  <h2>Prisoner's Dilemma</h2>
+  {% if match %}
+    <p>Opponent: {{ opponent.name }}</p>
+    {% if match.status == 'completed' %}
+      <p>The match has concluded. Check your dashboard for the results.</p>
+    {% else %}
+      <form method="post" class="inline-form">
+        <button class="button" name="action" value="cooperate">Cooperate</button>
+        <button class="button danger" name="action" value="defect">Defect</button>
+      </form>
+      <p class="note">Cooperate: both earn 5. Defect: earn 15 but your opponent loses 10. If both defect, both lose 5.</p>
+    {% endif %}
+  {% elif waiting %}
+    <p>You are in the matchmaking queue.</p>
+    <form method="post">
+      <button class="button" name="action" value="leave_queue">Leave queue</button>
+    </form>
+  {% else %}
+    <p>Queue up to find an opponent.</p>
+    <form method="post">
+      <button class="button primary" name="action" value="join_queue">Join queue</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

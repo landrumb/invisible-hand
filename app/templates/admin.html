@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="panel">
+    <h2>Price Movement</h2>
+    <table class="table">
+      <thead>
+        <tr><th>Product</th><th>Initial</th><th>Latest</th><th>Change</th><th>%</th></tr>
+      </thead>
+      <tbody>
+        {% for row in stats %}
+          <tr>
+            <td>{{ row.product.name }}</td>
+            <td>{{ '%.2f'|format(row.initial_price) }}</td>
+            <td>{{ '%.2f'|format(row.latest_price) }}</td>
+            <td class="amount {{ 'positive' if row.change >= 0 else 'negative' }}">{{ '%.2f'|format(row.change) }}</td>
+            <td>{{ '%.1f'|format(row.percent_change) }}%</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5">No price history yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel">
+    <h2>Recent Transactions</h2>
+    <ul class="list" id="txn-feed">
+      {% for txn in transactions %}
+        <li data-id="{{ txn.id }}">
+          <span>{{ txn.created_at.strftime('%H:%M:%S') }}</span>
+          <span>{{ txn.user.name }} — {{ txn.description }}</span>
+          <span class="amount {{ 'positive' if txn.amount >= 0 else 'negative' }}">{{ '%.2f'|format(txn.amount) }}</span>
+        </li>
+      {% else %}
+        <li>No transactions yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>Assign Roles</h2>
+    <form method="post" action="{{ url_for('main.assign_role') }}" class="form">
+      <label>User
+        <select name="user_id" required>
+          {% for user in users %}
+            <option value="{{ user.id }}">{{ user.name }} ({{ user.role.value }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Role
+        <select name="role" required>
+          {% for role in ['player', 'merchant', 'admin'] %}
+            <option value="{{ role }}">{{ role|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="button" type="submit">Assign</button>
+    </form>
+    <p class="note">Use the Flask shell to create the first admin or adjust roles directly.</p>
+  </article>
+</section>
+
+<script>
+async function refreshTransactions() {
+  const response = await fetch('{{ url_for('main.admin_transactions_feed') }}');
+  if (!response.ok) return;
+  const data = await response.json();
+  const list = document.getElementById('txn-feed');
+  list.innerHTML = '';
+  data.forEach(item => {
+    const li = document.createElement('li');
+    li.dataset.id = item.id;
+    li.innerHTML = `
+      <span>${new Date(item.timestamp).toLocaleTimeString()}</span>
+      <span>${item.user} — ${item.description}</span>
+      <span class="amount ${item.amount >= 0 ? 'positive' : 'negative'}">${item.amount.toFixed(2)}</span>
+    `;
+    list.appendChild(li);
+  });
+}
+setInterval(refreshTransactions, 5000);
+</script>
+{% endblock %}
