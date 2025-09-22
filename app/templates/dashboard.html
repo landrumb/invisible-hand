@@ -10,6 +10,12 @@
     <div class="actions">
       <a class="button" href="{{ url_for('main.single_player') }}">Play solo game</a>
       <a class="button" href="{{ url_for('main.prisoners_dilemma') }}">Enter Prisoner's Dilemma</a>
+      {% if current_user.is_merchant %}
+        <a class="button" href="{{ url_for('main.merchant_portal') }}">Open Merchant Portal</a>
+      {% endif %}
+      {% if current_user.is_admin %}
+        <a class="button" href="{{ url_for('main.admin_dashboard') }}">Admin Dashboard</a>
+      {% endif %}
     </div>
   </article>
   <article class="panel">

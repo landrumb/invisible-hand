@@ -12,6 +12,15 @@ class Role(str, Enum):
     MERCHANT = "merchant"
     ADMIN = "admin"
 
+    _LEVELS = {
+        PLAYER: 0,
+        MERCHANT: 1,
+        ADMIN: 2,
+    }
+
+    def at_least(self, other: "Role") -> bool:
+        return self._LEVELS[self] >= self._LEVELS[other]
+
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -33,13 +42,16 @@ class User(UserMixin, db.Model):
     def get_id(self):
         return str(self.id)
 
+    def has_privilege(self, role: Role) -> bool:
+        return self.role.at_least(role)
+
     @property
     def is_admin(self):
-        return self.role == Role.ADMIN
+        return self.has_privilege(Role.ADMIN)
 
     @property
     def is_merchant(self):
-        return self.role in {Role.MERCHANT, Role.ADMIN}
+        return self.has_privilege(Role.MERCHANT)
 
 
 @login_manager.user_loader
