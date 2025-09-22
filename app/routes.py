@@ -1,7 +1,7 @@
 import base64
 import io
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Set
 
 import qrcode
 from flask import (
@@ -35,6 +35,12 @@ from .models import (
     User,
     AppSetting,
     MoneyRequest,
+    Alert,
+    AlertReceipt,
+    ShareholderVote,
+    ShareholderVoteBallot,
+    ShareholderVoteOption,
+    ShareholderVoteParticipant,
 )
 from .securities import (
     execute_equity_trade,
@@ -88,6 +94,151 @@ def record_transaction(user, amount, description, counterparty=None, type_="game
         db.session.commit()
     return txn
 
+
+def _create_alert(creator, recipients: List[User], message: str, *, title: str | None = None, category: str = "message", payload: dict | None = None, vote: ShareholderVote | None = None):
+    clean_recipients = [user for user in recipients if user is not None]
+    if not clean_recipients:
+        return None
+    alert = Alert(
+        creator=creator,
+        title=title,
+        message=message,
+        category=category,
+        payload=dict(payload or {}),
+    )
+    if vote is not None:
+        alert.vote = vote
+    db.session.add(alert)
+    db.session.flush()
+    for user in clean_recipients:
+        receipt = AlertReceipt(alert=alert, user=user)
+        db.session.add(receipt)
+    return alert
+
+
+def _current_share_map(vote: ShareholderVote, user_ids: List[int]) -> dict[int, float]:
+    if not user_ids:
+        return {}
+    holdings = (
+        SecurityHolding.query.filter(
+            SecurityHolding.security_symbol == vote.security_symbol,
+            SecurityHolding.user_id.in_(user_ids),
+        )
+        .all()
+    )
+    share_map = {uid: 0.0 for uid in user_ids}
+    for holding in holdings:
+        share_map[holding.user_id] = float(max(0.0, holding.quantity or 0.0))
+    return share_map
+
+
+def _compute_vote_snapshot(vote: ShareholderVote) -> dict:
+    user_ids = [participant.user_id for participant in vote.participants]
+    share_map = _current_share_map(vote, user_ids)
+    option_totals = {option.id: 0.0 for option in vote.options}
+    ballots = {ballot.user_id: ballot for ballot in vote.ballots}
+    for user_id, ballot in ballots.items():
+        weight = share_map.get(user_id, 0.0)
+        option_totals[ballot.option_id] = option_totals.get(ballot.option_id, 0.0) + weight
+    total_shares = sum(share_map.values())
+    voted_shares = sum(option_totals.values())
+    unvoted = max(0.0, total_shares - voted_shares)
+    return {
+        "options": [
+            {
+                "id": option.id,
+                "label": option.label,
+                "shares": option_totals.get(option.id, 0.0),
+            }
+            for option in vote.options
+        ],
+        "unvoted_shares": unvoted,
+        "total_shares": total_shares,
+    }
+
+
+def finalize_due_votes():
+    now = datetime.utcnow()
+    pending_votes = (
+        ShareholderVote.query.filter(
+            ShareholderVote.deadline <= now,
+            ShareholderVote.finalized_at.is_(None),
+        )
+        .all()
+    )
+    for vote in pending_votes:
+        snapshot = _compute_vote_snapshot(vote)
+        vote.final_results = {
+            "calculated_at": now.isoformat(),
+            "deadline": vote.deadline.isoformat(),
+            **snapshot,
+        }
+        vote.finalized_at = now
+        recipients = [participant.user for participant in vote.participants]
+        winning_option = max(
+            snapshot["options"],
+            key=lambda item: item["shares"],
+            default=None,
+        )
+        if winning_option and snapshot["total_shares"]:
+            pct = (winning_option["shares"] / snapshot["total_shares"]) * 100.0
+            summary = f"{winning_option['label']} received {pct:.1f}% of eligible shares"
+        else:
+            summary = "No shares were cast in this vote"
+        message = (
+            f"Shareholder vote for {vote.security_symbol} has closed. {summary}."
+        )
+        payload = {
+            "vote_id": vote.id,
+            "title": vote.title,
+            "results": snapshot,
+        }
+        _create_alert(
+            vote.creator,
+            recipients,
+            message,
+            title=f"Vote results: {vote.title}",
+            category="vote_result",
+            payload=payload,
+            vote=vote,
+        )
+    if pending_votes:
+        db.session.commit()
+
+
+def ensure_vote_alerts_for_user(user: User, symbol: str):
+    holdings = SecurityHolding.query.filter_by(user_id=user.id, security_symbol=symbol).first()
+    if not holdings or not holdings.quantity or holdings.quantity <= 0:
+        return
+    open_votes = (
+        ShareholderVote.query.filter_by(security_symbol=symbol)
+        .filter(ShareholderVote.deadline > datetime.utcnow())
+        .all()
+    )
+    for vote in open_votes:
+        participant = ShareholderVoteParticipant.query.filter_by(
+            vote_id=vote.id, user_id=user.id
+        ).first()
+        if not participant:
+            participant = ShareholderVoteParticipant(vote=vote, user=user)
+            db.session.add(participant)
+        if participant.alerted_at is None:
+            payload = {
+                "vote_id": vote.id,
+                "deadline": vote.deadline.isoformat(),
+                "security_symbol": vote.security_symbol,
+            }
+            alert = _create_alert(
+                vote.creator,
+                [user],
+                vote.message,
+                title=f"Shareholder vote: {vote.title}",
+                category="vote_invite",
+                payload=payload,
+                vote=vote,
+            )
+            if alert:
+                participant.alerted_at = datetime.utcnow()
 
 def _price_at_or_before(symbol: str, target: datetime):
     return (
@@ -191,6 +342,7 @@ def index():
 @bp.route("/dashboard")
 @login_required
 def dashboard():
+    finalize_due_votes()
     latest_transactions = (
         Transaction.query.filter_by(user_id=current_user.id)
         .order_by(Transaction.created_at.desc())
@@ -226,6 +378,44 @@ def dashboard():
         incoming_requests=incoming_requests,
         outgoing_requests=outgoing_requests,
         qr_data_uri=build_qr_for_user(current_user),
+    )
+
+
+@bp.route("/inbox")
+@login_required
+def inbox():
+    finalize_due_votes()
+    incoming_requests = (
+        MoneyRequest.query.filter_by(target_id=current_user.id)
+        .order_by(MoneyRequest.created_at.desc())
+        .all()
+    )
+    outgoing_requests = (
+        MoneyRequest.query.filter_by(requester_id=current_user.id)
+        .order_by(MoneyRequest.created_at.desc())
+        .all()
+    )
+    alert_receipts = (
+        AlertReceipt.query.filter_by(user_id=current_user.id)
+        .join(Alert)
+        .order_by(Alert.created_at.desc())
+        .all()
+    )
+
+    newly_read = []
+    now = datetime.utcnow()
+    for receipt in alert_receipts:
+        if receipt.read_at is None:
+            receipt.read_at = now
+            newly_read.append(receipt)
+    if newly_read:
+        db.session.commit()
+
+    return render_template(
+        "inbox.html",
+        incoming_requests=incoming_requests,
+        outgoing_requests=outgoing_requests,
+        alert_receipts=alert_receipts,
     )
 
 
@@ -352,6 +542,7 @@ def respond_money_request(request_id):
 @bp.route("/securities")
 @login_required
 def securities_hub():
+    finalize_due_votes()
     simulator = get_simulator()
     securities = Security.query.order_by(Security.symbol.asc()).all()
     security_positions = {
@@ -519,6 +710,7 @@ def security_details(symbol):
 @bp.route("/securities/trade", methods=["POST"])
 @login_required
 def trade_security():
+    finalize_due_votes()
     symbol = request.form.get("symbol")
     side = request.form.get("side")
     quantity = request.form.get("quantity", type=float)
@@ -537,6 +729,7 @@ def trade_security():
             type_="securities",
             commit=False,
         )
+        ensure_vote_alerts_for_user(current_user, symbol)
         db.session.commit()
         flash(f"{result.description} at {result.price:.2f}.", "success")
     except ValueError as exc:
@@ -1096,10 +1289,21 @@ def process_sale(product_id):
 def admin_dashboard():
     if not current_user.is_admin:
         abort(403)
+    finalize_due_votes()
     products = Product.query.order_by(Product.name).all()
+    securities = Security.query.order_by(Security.symbol.asc()).all()
     users = User.query.order_by(User.name).all()
     price_history = PriceHistory.query.order_by(PriceHistory.timestamp.desc()).limit(50).all()
     recent_transactions = Transaction.query.order_by(Transaction.created_at.desc()).limit(20).all()
+    recent_alerts = Alert.query.order_by(Alert.created_at.desc()).limit(10).all()
+    open_votes = (
+        ShareholderVote.query.filter(ShareholderVote.finalized_at.is_(None))
+        .order_by(ShareholderVote.deadline.asc())
+        .all()
+    )
+    recent_votes = (
+        ShareholderVote.query.order_by(ShareholderVote.created_at.desc()).limit(5).all()
+    )
     stats = build_price_stats(products)
     default_increase = AppSetting.get("price_increase_pct", "5.0")
     # Defaults for per-game settings
@@ -1117,12 +1321,16 @@ def admin_dashboard():
         transactions=recent_transactions,
         stats=stats,
         users=users,
+        securities=securities,
         price_increase_pct=default_increase,
         sp_dec=sp_dec,
         sp_mult=sp_mult,
         pd_dec=pd_dec,
         pd_mult=pd_mult,
         casino_status=casino_status,
+        alerts=recent_alerts,
+        open_votes=open_votes,
+        recent_votes=recent_votes,
     )
 
 
@@ -1179,6 +1387,229 @@ def admin_casino_publish():
         db.session.rollback()
         flash(f"Casino earnings publication failed: {exc}", "error")
     return redirect(url_for("main.admin_dashboard"))
+
+
+@bp.route("/admin/alerts", methods=["POST"])
+@login_required
+def create_alert():
+    if not current_user.is_admin:
+        abort(403)
+
+    message = (request.form.get("message") or "").strip()
+    audience = request.form.get("audience", "all")
+    target_handle = (request.form.get("target_handle") or "").strip()
+
+    if not message:
+        flash("Alert message cannot be empty.", "error")
+        return redirect(url_for("main.admin_dashboard"))
+
+    recipients: List[User] = []
+    if audience == "handle":
+        try:
+            target_user = find_user_by_handle(target_handle)
+        except ValueError:
+            flash("Multiple users share that handle. Please use their full email instead.", "error")
+            return redirect(url_for("main.admin_dashboard"))
+        if not target_user:
+            flash("Could not find a user with that handle.", "error")
+            return redirect(url_for("main.admin_dashboard"))
+        recipients = [target_user]
+    else:
+        recipients = User.query.filter(User.role == Role.PLAYER).all()
+
+    if not recipients:
+        flash("No recipients found for that alert.", "error")
+        return redirect(url_for("main.admin_dashboard"))
+
+    alert = Alert(creator=current_user, message=message)
+    db.session.add(alert)
+    db.session.flush()
+    for user in recipients:
+        receipt = AlertReceipt(alert=alert, user=user)
+        db.session.add(receipt)
+    db.session.commit()
+    flash(
+        f"Alert sent to {len(recipients)} player{'s' if len(recipients) != 1 else ''}.",
+        "success",
+    )
+    return redirect(url_for("main.admin_dashboard"))
+
+
+@bp.route("/admin/votes", methods=["POST"])
+@login_required
+def create_shareholder_vote():
+    if not current_user.is_admin:
+        abort(403)
+    finalize_due_votes()
+    symbol = (request.form.get("security_symbol") or "").strip().upper()
+    title = (request.form.get("vote_title") or "").strip()
+    message = (request.form.get("vote_message") or "").strip()
+    options_raw = request.form.get("vote_options") or ""
+    deadline_raw = request.form.get("vote_deadline") or ""
+
+    if not symbol or not title or not message:
+        flash("Security, title, and message are required to start a vote.", "error")
+        return redirect(url_for("main.admin_dashboard"))
+
+    security = Security.query.get(symbol)
+    if not security:
+        flash("Could not find that security.", "error")
+        return redirect(url_for("main.admin_dashboard"))
+
+    try:
+        deadline = datetime.strptime(deadline_raw, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        flash("Please provide a valid deadline.", "error")
+        return redirect(url_for("main.admin_dashboard"))
+
+    if deadline <= datetime.utcnow():
+        flash("Deadline must be in the future.", "error")
+        return redirect(url_for("main.admin_dashboard"))
+
+    options = [line.strip() for line in options_raw.replace("\r", "").split("\n") if line.strip()]
+    if len(options) < 2:
+        flash("Provide at least two voting options.", "error")
+        return redirect(url_for("main.admin_dashboard"))
+
+    vote = ShareholderVote(
+        creator=current_user,
+        security_symbol=security.symbol,
+        title=title,
+        message=message,
+        deadline=deadline,
+    )
+    db.session.add(vote)
+    db.session.flush()
+    for idx, label in enumerate(options):
+        option = ShareholderVoteOption(vote=vote, label=label, position=idx)
+        db.session.add(option)
+
+    holdings = (
+        SecurityHolding.query.filter(
+            SecurityHolding.security_symbol == security.symbol,
+            SecurityHolding.quantity > 0,
+        )
+        .all()
+    )
+    recipients: List[User] = []
+    sent_user_ids: Set[int] = set()
+    for holding in holdings:
+        if holding.user is None or holding.user_id in sent_user_ids:
+            continue
+        participant = ShareholderVoteParticipant(vote=vote, user=holding.user)
+        db.session.add(participant)
+        sent_user_ids.add(holding.user_id)
+        recipients.append(holding.user)
+
+    payload = {
+        "vote_id": vote.id,
+        "deadline": deadline.isoformat(),
+        "security_symbol": security.symbol,
+    }
+    alert = _create_alert(
+        current_user,
+        recipients,
+        message,
+        title=f"Shareholder vote: {title}",
+        category="vote_invite",
+        payload=payload,
+        vote=vote,
+    )
+    if alert:
+        sent_at = datetime.utcnow()
+        for participant in vote.participants:
+            if participant.user_id in sent_user_ids:
+                participant.alerted_at = sent_at
+        db.session.commit()
+        flash(
+            f"Vote sent to {len(recipients)} shareholder{'s' if len(recipients) != 1 else ''}.",
+            "success",
+        )
+    else:
+        db.session.commit()
+        flash(
+            "Vote created, but no current shareholders were notified.",
+            "info",
+        )
+
+    return redirect(url_for("main.admin_dashboard"))
+
+
+@bp.route("/votes/<int:vote_id>")
+@login_required
+def view_shareholder_vote(vote_id: int):
+    finalize_due_votes()
+    vote = ShareholderVote.query.get_or_404(vote_id)
+    ballot = ShareholderVoteBallot.query.filter_by(
+        vote_id=vote.id, user_id=current_user.id
+    ).first()
+    holding = SecurityHolding.query.filter_by(
+        user_id=current_user.id, security_symbol=vote.security_symbol
+    ).first()
+    current_shares = float(holding.quantity or 0.0) if holding and holding.quantity else 0.0
+    now = datetime.utcnow()
+    voting_open = now < vote.deadline and not vote.finalized_at
+    if vote.finalized_at and vote.final_results:
+        chart_data = vote.final_results
+    else:
+        chart_data = _compute_vote_snapshot(vote)
+    total_shares = chart_data.get("total_shares", 0.0) or 0.0
+    return render_template(
+        "shareholder_vote.html",
+        vote=vote,
+        ballot=ballot,
+        voting_open=voting_open,
+        chart_data=chart_data,
+        current_shares=current_shares,
+        total_shares=total_shares,
+    )
+
+
+@bp.route("/votes/<int:vote_id>/cast", methods=["POST"])
+@login_required
+def cast_shareholder_vote(vote_id: int):
+    finalize_due_votes()
+    vote = ShareholderVote.query.get_or_404(vote_id)
+    if vote.finalized_at or datetime.utcnow() >= vote.deadline:
+        flash("Voting has closed for this motion.", "error")
+        return redirect(url_for("main.view_shareholder_vote", vote_id=vote.id))
+
+    option_id = request.form.get("option_id", type=int)
+    option = ShareholderVoteOption.query.filter_by(id=option_id, vote_id=vote.id).first()
+    if not option:
+        flash("Select a valid voting option.", "error")
+        return redirect(url_for("main.view_shareholder_vote", vote_id=vote.id))
+
+    ensure_vote_alerts_for_user(current_user, vote.security_symbol)
+    holding = SecurityHolding.query.filter_by(
+        user_id=current_user.id, security_symbol=vote.security_symbol
+    ).first()
+    if not holding or not holding.quantity or holding.quantity <= 0:
+        flash("You must hold shares in this security to vote.", "error")
+        return redirect(url_for("main.view_shareholder_vote", vote_id=vote.id))
+
+    ballot = ShareholderVoteBallot.query.filter_by(
+        vote_id=vote.id, user_id=current_user.id
+    ).first()
+    if ballot:
+        ballot.option = option
+        ballot.submitted_at = datetime.utcnow()
+    else:
+        ballot = ShareholderVoteBallot(vote=vote, user=current_user, option=option)
+        db.session.add(ballot)
+
+    participant = ShareholderVoteParticipant.query.filter_by(
+        vote_id=vote.id, user_id=current_user.id
+    ).first()
+    if not participant:
+        participant = ShareholderVoteParticipant(vote=vote, user=current_user)
+        db.session.add(participant)
+    if participant.alerted_at is None:
+        participant.alerted_at = datetime.utcnow()
+
+    db.session.commit()
+    flash("Vote submitted.", "success")
+    return redirect(url_for("main.view_shareholder_vote", vote_id=vote.id))
 
 
 def build_price_stats(products):

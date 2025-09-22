@@ -65,6 +65,11 @@ class User(UserMixin, db.Model):
         backref=db.backref("user", lazy=True),
         lazy=True,
     )
+    alert_receipts = db.relationship(
+        "AlertReceipt",
+        backref=db.backref("user", lazy=True),
+        lazy=True,
+    )
 
     def get_id(self):
         return str(self.id)
@@ -111,6 +116,107 @@ class MoneyRequest(db.Model):
 
     requester = db.relationship("User", foreign_keys=[requester_id], lazy=True)
     target = db.relationship("User", foreign_keys=[target_id], lazy=True)
+
+
+class ShareholderVote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    security_symbol = db.Column(db.String(8), db.ForeignKey("security.symbol"), nullable=False)
+    creator_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    deadline = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    finalized_at = db.Column(db.DateTime, nullable=True)
+    final_results = db.Column(db.JSON, nullable=True)
+
+    creator = db.relationship("User", foreign_keys=[creator_id], lazy=True)
+    security = db.relationship("Security", lazy=True)
+    options = db.relationship(
+        "ShareholderVoteOption",
+        backref=db.backref("vote", lazy=True),
+        cascade="all, delete-orphan",
+        order_by="ShareholderVoteOption.position",
+        lazy=True,
+    )
+    ballots = db.relationship(
+        "ShareholderVoteBallot",
+        backref=db.backref("vote", lazy=True),
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+    participants = db.relationship(
+        "ShareholderVoteParticipant",
+        backref=db.backref("vote", lazy=True),
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+
+
+class ShareholderVoteOption(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    vote_id = db.Column(db.Integer, db.ForeignKey("shareholder_vote.id"), nullable=False)
+    label = db.Column(db.String(255), nullable=False)
+    position = db.Column(db.Integer, nullable=False, default=0)
+
+
+class ShareholderVoteBallot(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    vote_id = db.Column(db.Integer, db.ForeignKey("shareholder_vote.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    option_id = db.Column(db.Integer, db.ForeignKey("shareholder_vote_option.id"), nullable=False)
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    option = db.relationship("ShareholderVoteOption", lazy=True)
+    user = db.relationship("User", lazy=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("vote_id", "user_id", name="uq_vote_ballot"),
+    )
+
+
+class ShareholderVoteParticipant(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    vote_id = db.Column(db.Integer, db.ForeignKey("shareholder_vote.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    alerted_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship("User", lazy=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("vote_id", "user_id", name="uq_vote_participant"),
+    )
+
+
+class Alert(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    creator_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    title = db.Column(db.String(255), nullable=True)
+    message = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(50), nullable=False, default="message")
+    payload = db.Column(db.JSON, nullable=True)
+    vote_id = db.Column(db.Integer, db.ForeignKey("shareholder_vote.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    creator = db.relationship("User", foreign_keys=[creator_id], lazy=True)
+    recipients = db.relationship(
+        "AlertReceipt",
+        backref=db.backref("alert", lazy=True),
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+
+
+class AlertReceipt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    alert_id = db.Column(db.Integer, db.ForeignKey("alert.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("alert_id", "user_id", name="uq_alert_receipt"),
+    )
 
 
 class Product(db.Model):
