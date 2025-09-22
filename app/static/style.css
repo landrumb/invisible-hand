@@ -13,6 +13,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   font-family: 'Roboto Mono', monospace;
@@ -218,17 +222,244 @@ button.danger:hover {
 }
 
 .change.positive,
+.delta.positive,
 .amount.positive {
   color: var(--accent);
 }
 
 .change.negative,
+.delta.negative,
 .amount.negative {
   color: var(--danger);
 }
 
 .description {
   max-width: 240px;
+}
+
+.securities-header,
+.security-card summary {
+  display: grid;
+  grid-template-columns: 110px 1fr 110px 110px 170px 24px;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.securities-header {
+  padding: 0 1rem 0.35rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.securities-header .col {
+  white-space: nowrap;
+}
+
+.securities-header .expand-placeholder {
+  justify-self: end;
+}
+
+.securities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.security-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(8, 13, 20, 0.65);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.security-card summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  position: relative;
+}
+
+.security-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.security-card .expand-icon {
+  font-size: 1rem;
+  color: var(--muted);
+  justify-self: end;
+  transition: transform 0.2s ease;
+}
+
+.security-card[open] {
+  border-color: rgba(26, 255, 213, 0.45);
+  box-shadow: 0 0 0 1px rgba(26, 255, 213, 0.25);
+}
+
+.security-card[open] .expand-icon {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+
+.security-card .col.position {
+  font-size: 0.85rem;
+}
+
+.security-card .col.name {
+  font-weight: 600;
+}
+
+.security-card .delta {
+  transition: color 0.2s ease;
+}
+
+.security-body {
+  padding: 0.75rem 1rem 1.1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.security-overview {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.security-info .description {
+  max-width: none;
+  margin-bottom: 0.85rem;
+}
+
+.security-info .trade-form {
+  margin-top: 0.5rem;
+}
+
+.chart-container {
+  position: relative;
+  min-height: 260px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: radial-gradient(circle at top left, rgba(26, 255, 213, 0.12), rgba(6, 9, 14, 0.6));
+  overflow: hidden;
+}
+
+.chart-container canvas {
+  width: 100%;
+  height: 260px;
+  display: block;
+}
+
+.chart-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 9, 14, 0.65);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.chart-tooltip {
+  position: absolute;
+  min-width: 140px;
+  pointer-events: none;
+  padding: 0.4rem 0.6rem;
+  background: rgba(10, 15, 22, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.chart-tooltip strong {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.derivatives-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.derivative-panel header {
+  margin-bottom: 0.35rem;
+}
+
+.derivative-panel h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.derivative-panel .muted {
+  font-size: 0.75rem;
+}
+
+.derivative-panel table {
+  background: rgba(8, 13, 20, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.derivative-panel table td form {
+  justify-content: flex-start;
+}
+
+.derivative-panel table td {
+  vertical-align: middle;
+}
+
+@media (max-width: 960px) {
+  .securities-header,
+  .security-card summary {
+    grid-template-columns: 90px 1fr 90px 100px 140px 24px;
+    gap: 0.5rem;
+  }
+
+  .security-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-container {
+    min-height: 220px;
+  }
+
+  .chart-container canvas {
+    height: 220px;
+  }
+}
+
+@media (max-width: 680px) {
+  .securities-header {
+    display: none;
+  }
+
+  .security-card summary {
+    grid-template-columns: 80px 1fr;
+    gap: 0.5rem;
+    row-gap: 0.3rem;
+  }
+
+  .security-card summary .col.price,
+  .security-card summary .col.delta,
+  .security-card summary .col.position,
+  .security-card summary .expand-icon {
+    grid-column: span 2;
+    justify-self: flex-start;
+  }
+
+  .security-card summary .expand-icon {
+    justify-self: flex-end;
+  }
 }
 
 .sr-only {
