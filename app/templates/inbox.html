@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block title %}Inbox{% endblock %}
+{% block content %}
+<section class="grid inbox-grid">
+  <article class="panel wide">
+    <h2>Alerts from Admin</h2>
+    {% if alert_receipts %}
+      <ul class="alert-list">
+        {% for receipt in alert_receipts %}
+          {% set alert = receipt.alert %}
+          {% set payload = alert.payload or {} %}
+          <li class="alert-item {{ 'unread' if receipt.read_at is none else '' }} alert-{{ alert.category }}">
+            <header>
+              <div>
+                <strong>{{ alert.creator.name if alert.creator else 'Admin' }}</strong>
+                <span class="muted">{{ alert.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              </div>
+              {% if alert.title %}
+                <h3>{{ alert.title }}</h3>
+              {% endif %}
+            </header>
+            <p>{{ alert.message }}</p>
+            {% if alert.category == 'vote_invite' and payload.get('vote_id') %}
+              <p><a class="button secondary" href="{{ url_for('main.view_shareholder_vote', vote_id=payload.get('vote_id')) }}">Review and vote</a></p>
+              <p class="muted">Deadline: {{ payload.get('deadline')|replace('T', ' ') if payload.get('deadline') else 'See details' }}</p>
+            {% elif alert.category == 'vote_result' %}
+              {% set results = payload.get('results') or {} %}
+              {% set options = results.get('options') or [] %}
+              {% set total = results.get('total_shares') or 0 %}
+              <div class="vote-chart">
+                {% for option in options %}
+                  {% set shares = option.get('shares', 0) %}
+                  {% set pct = (shares / total * 100) if total else 0 %}
+                  <div class="vote-bar">
+                    <div class="vote-bar-label">{{ option.get('label') }}</div>
+                    <div class="vote-bar-track">
+                      <div class="vote-bar-fill" style="width: {{ '%.1f'|format(pct) }}%"></div>
+                    </div>
+                    <div class="vote-bar-value">{{ '%.2f'|format(shares) }} shares</div>
+                  </div>
+                {% endfor %}
+                {% set unvoted = results.get('unvoted_shares') or 0 %}
+                <div class="vote-bar muted">
+                  <div class="vote-bar-label">Not voted</div>
+                  {% set unvoted_pct = (unvoted / total * 100) if total else 0 %}
+                  <div class="vote-bar-track">
+                    <div class="vote-bar-fill" style="width: {{ '%.1f'|format(unvoted_pct) }}%"></div>
+                  </div>
+                  <div class="vote-bar-value">{{ '%.2f'|format(unvoted) }} shares</div>
+                </div>
+                <p class="muted">Total eligible shares: {{ '%.2f'|format(total) }}</p>
+              </div>
+            {% endif %}
+            {% if receipt.read_at %}
+              <span class="muted">Read {{ receipt.read_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            {% else %}
+              <span class="muted">New</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No alerts yet.</p>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <h3>Requests You Received</h3>
+    {% if incoming_requests %}
+      <ul class="inbox-requests">
+        {% for req in incoming_requests %}
+          <li>
+            <header>
+              <strong>{{ req.requester.name }}</strong>
+              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            </header>
+            <p>Requested <strong>{{ '%.2f'|format(req.amount) }}</strong> credits.</p>
+            {% if req.message %}
+              <p class="muted">“{{ req.message }}”</p>
+            {% endif %}
+            <p class="muted">Status: {{ req.status|capitalize }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No one has requested credits from you yet.</p>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <h3>Requests You Sent</h3>
+    {% if outgoing_requests %}
+      <ul class="inbox-requests">
+        {% for req in outgoing_requests %}
+          <li>
+            <header>
+              <strong>{{ req.target.name }}</strong>
+              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            </header>
+            <p>Asked for <strong>{{ '%.2f'|format(req.amount) }}</strong> credits.</p>
+            {% if req.message %}
+              <p class="muted">“{{ req.message }}”</p>
+            {% endif %}
+            <p class="muted">Status: {{ req.status|capitalize }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">You haven't sent any requests yet.</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

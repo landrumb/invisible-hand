@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Shareholder Vote · {{ vote.title }}{% endblock %}
+{% block content %}
+<section class="grid">
+  <article class="panel wide vote-detail">
+    <h1>{{ vote.title }}</h1>
+    <p class="muted">Security {{ vote.security_symbol }} · Created {{ vote.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    <div class="vote-message">{{ vote.message | replace('\n', '<br>') | safe }}</div>
+    {% if voting_open %}
+      <p class="note">Voting closes at {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }} UTC.</p>
+    {% else %}
+      <p class="note">Voting closed {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }} UTC.</p>
+    {% endif %}
+    <p class="muted">You currently hold {{ '%.2f'|format(current_shares) }} shares. Final weight is based on holdings at the deadline.</p>
+
+    {% set options = chart_data.get('options') or [] %}
+    {% set total = chart_data.get('total_shares') or 0 %}
+    {% set unvoted = chart_data.get('unvoted_shares') or 0 %}
+    <div class="vote-chart">
+      {% for option in options %}
+        {% set shares = option.get('shares', 0) %}
+        {% set pct = (shares / total * 100) if total else 0 %}
+        <div class="vote-bar">
+          <div class="vote-bar-label">{{ option.get('label') }}</div>
+          <div class="vote-bar-track">
+            <div class="vote-bar-fill" style="width: {{ '%.1f'|format(pct) }}%"></div>
+          </div>
+          <div class="vote-bar-value">{{ '%.2f'|format(shares) }} shares</div>
+        </div>
+      {% endfor %}
+      <div class="vote-bar muted">
+        <div class="vote-bar-label">Not voted</div>
+        {% set unvoted_pct = (unvoted / total * 100) if total else 0 %}
+        <div class="vote-bar-track">
+          <div class="vote-bar-fill" style="width: {{ '%.1f'|format(unvoted_pct) }}%"></div>
+        </div>
+        <div class="vote-bar-value">{{ '%.2f'|format(unvoted) }} shares</div>
+      </div>
+      <p class="muted">Total eligible shares: {{ '%.2f'|format(total) }}</p>
+    </div>
+
+    {% if voting_open %}
+      <form method="post" action="{{ url_for('main.cast_shareholder_vote', vote_id=vote.id) }}" class="form vote-form">
+        <fieldset class="fieldset">
+          <legend>Cast your vote</legend>
+          {% for option in vote.options %}
+            <label class="radio">
+              <input type="radio" name="option_id" value="{{ option.id }}" {% if ballot and ballot.option_id == option.id %}checked{% endif %} required>
+              {{ option.label }}
+            </label>
+          {% endfor %}
+        </fieldset>
+        <button class="button primary" type="submit">Submit vote</button>
+      </form>
+    {% else %}
+      <p class="note">Voting is closed. Results are final.</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

@@ -112,6 +112,18 @@ button.primary {
   color: #001217;
 }
 
+.button.secondary,
+button.secondary {
+  border-color: rgba(26, 255, 213, 0.5);
+  color: var(--accent);
+}
+
+.button.secondary:hover,
+button.secondary:hover {
+  background: rgba(26, 255, 213, 0.15);
+  color: var(--text);
+}
+
 .button:hover,
 button:hover {
   background: var(--accent-strong);
@@ -557,6 +569,23 @@ button.danger:hover {
   border-bottom: none;
 }
 
+.vote-admin-columns {
+  margin-top: 1.5rem;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.vote-list li {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.vote-list li a.button {
+  margin-top: 0.35rem;
+}
+
 .quotes {
   width: 100%;
   border-collapse: collapse;
@@ -609,6 +638,156 @@ button.danger:hover {
 .muted {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.inbox-grid .panel {
+  min-height: 0;
+}
+
+.alert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.alert-item {
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.alert-item.unread {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(26, 255, 213, 0.2);
+}
+
+.alert-item h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.alert-item.alert-vote_result {
+  border-color: rgba(26, 255, 213, 0.4);
+}
+
+.alert-item.alert-vote_invite {
+  border-color: rgba(26, 255, 213, 0.25);
+}
+
+.alert-item header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.alert-item p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.vote-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.vote-bar {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) minmax(120px, auto);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.vote-bar-label {
+  font-weight: 600;
+}
+
+.vote-bar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  height: 0.65rem;
+}
+
+.vote-bar-fill {
+  background: var(--accent);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.vote-bar.muted .vote-bar-fill {
+  background: rgba(120, 144, 156, 0.6);
+}
+
+.vote-bar-value {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.vote-detail h1 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.vote-message {
+  margin: 1rem 0;
+  line-height: 1.5;
+}
+
+.vote-form {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.vote-form .radio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vote-form button {
+  align-self: flex-start;
+}
+
+.inbox-requests {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.inbox-requests li {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.inbox-requests header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.inbox-requests p {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
 }
 
 .change.positive,
@@ -925,6 +1104,34 @@ button.danger:hover {
   margin-top: 0.4rem;
   min-height: 3.5rem;
   resize: vertical;
+}
+
+.form .fieldset {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.form .fieldset legend {
+  padding: 0 0.35rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.form .radio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  text-transform: none;
+  margin-bottom: 0.5rem;
+}
+
+.form .radio input[type="radio"] {
+  width: auto;
+  margin: 0;
 }
 
 .form .actions {

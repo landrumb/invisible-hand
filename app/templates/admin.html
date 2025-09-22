@@ -104,6 +104,105 @@
   </article>
 
   <article class="panel">
+    <h2>Send Player Alert</h2>
+    <form method="post" action="{{ url_for('main.create_alert') }}" class="form">
+      <label>Message
+        <textarea name="message" required placeholder="What's happening?" rows="3"></textarea>
+      </label>
+      <fieldset class="fieldset">
+        <legend>Audience</legend>
+        <label class="radio">
+          <input type="radio" name="audience" value="all" checked>
+          All players
+        </label>
+        <label class="radio">
+          <input type="radio" name="audience" value="handle">
+          Specific handle
+        </label>
+        <input type="text" name="target_handle" placeholder="player-handle" />
+      </fieldset>
+      <button class="button" type="submit">Send alert</button>
+    </form>
+    <p class="note">Alerts show up in the new player inbox. Handles use the part of their email before the @ symbol.</p>
+  </article>
+
+  <article class="panel">
+    <h2>Shareholder Votes</h2>
+    <form method="post" action="{{ url_for('main.create_shareholder_vote') }}" class="form">
+      <label>Security
+        <select name="security_symbol" required>
+          {% for security in securities %}
+            <option value="{{ security.symbol }}">{{ security.symbol }} — {{ security.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Title
+        <input type="text" name="vote_title" required placeholder="Annual meeting proposal">
+      </label>
+      <label>Message
+        <textarea name="vote_message" rows="3" required placeholder="Describe the proposal and any relevant context."></textarea>
+      </label>
+      <label>Options (one per line)
+        <textarea name="vote_options" rows="3" required placeholder="Approve&#10;Reject"></textarea>
+      </label>
+      <label>Voting deadline
+        <input type="datetime-local" name="vote_deadline" required>
+      </label>
+      <button class="button" type="submit">Start vote</button>
+    </form>
+    <p class="note">Players holding the selected security receive an alert with a link to the vote. Voting weight is based on shares held at the deadline.</p>
+
+    <div class="vote-admin-columns">
+      <div>
+        <h3>Open votes</h3>
+        <ul class="list vote-list">
+          {% for vote in open_votes %}
+            <li>
+              <strong>{{ vote.title }}</strong>
+              <span class="muted">{{ vote.security_symbol }} · closes {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }}</span>
+              <a class="button secondary" href="{{ url_for('main.view_shareholder_vote', vote_id=vote.id) }}">View vote</a>
+            </li>
+          {% else %}
+            <li>No open votes.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div>
+        <h3>Recent votes</h3>
+        <ul class="list vote-list">
+          {% for vote in recent_votes %}
+            <li>
+              <strong>{{ vote.title }}</strong>
+              {% if vote.finalized_at %}
+                <span class="muted">Closed {{ vote.finalized_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              {% else %}
+                <span class="muted">Open · closes {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }}</span>
+              {% endif %}
+              <a class="button secondary" href="{{ url_for('main.view_shareholder_vote', vote_id=vote.id) }}">Details</a>
+            </li>
+          {% else %}
+            <li>No votes yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <h2>Recent Alerts</h2>
+    <ul class="list">
+      {% for alert in alerts %}
+        <li>
+          <span>{{ alert.created_at.strftime('%H:%M:%S') }}</span>
+          <span>{{ alert.creator.name if alert.creator else 'Admin' }} — {{ alert.title or alert.message }}</span>
+        </li>
+      {% else %}
+        <li>No alerts sent yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
     <h2>Per-Product Sensitivities</h2>
     <form method="post" action="{{ url_for('main.merchant_portal') }}" class="form">
       <input type="hidden" name="action" value="update_product_increase_pct">
