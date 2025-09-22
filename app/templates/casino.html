@@ -11,20 +11,83 @@
 
 <section class="panel wide">
   <h2>Slots Lobby</h2>
-  <div class="casino-grid">
+  <div class="slot-grid">
     {% for slot in slots %}
-      <div class="casino-machine">
-        <h3>{{ slot.name }}</h3>
-        <p class="theme">{{ slot.theme }}</p>
-        <form method="post" action="{{ url_for('main.play_slot') }}" class="casino-form">
+      <article
+        class="slot-machine"
+        data-slot="{{ slot.key }}"
+        data-prizes='{{ slot.serialize_prizes() | tojson }}'
+      >
+        <header class="slot-machine-header">
+          <div>
+            <h3>{{ slot.name }}</h3>
+            <p class="theme">{{ slot.theme }}</p>
+          </div>
+        </header>
+        <div class="slot-cabinet">
+          <div class="slot-display" role="group" aria-label="Slot reels">
+            {% set prize_count = slot.prizes|length %}
+            {% for col in range(3) %}
+              <div class="slot-reel" data-index="{{ col }}">
+                {% for row in range(3) %}
+                  {% set default_prize = slot.prizes[(col + row) % prize_count] if prize_count else None %}
+                  <div class="slot-face" data-role="face" data-row="{{ row }}" data-column="{{ col }}">
+                    {% if default_prize and default_prize.image %}
+                      <img src="{{ default_prize.image }}" alt="{{ default_prize.label }}">
+                    {% else %}
+                      <span>{{ default_prize.symbol if default_prize else '❓' }}</span>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+          </div>
+          <button
+            type="button"
+            class="slot-lever"
+            data-role="slot-lever"
+            aria-label="Pull the lever"
+          >
+            <div class="slot-lever-arm">
+              <div class="slot-lever-handle"></div>
+            </div>
+            <div class="slot-lever-base"></div>
+          </button>
+        </div>
+        <section class="slot-legend" aria-label="Prize legend">
+          <h4>Prize legend</h4>
+          <ul>
+            {% for prize in slot.prizes %}
+              <li>
+                <div class="slot-legend-symbols" aria-hidden="true">
+                  {% if prize.image %}
+                    <img src="{{ prize.image }}" alt="">
+                    <img src="{{ prize.image }}" alt="">
+                    <img src="{{ prize.image }}" alt="">
+                  {% else %}
+                    <span>{{ prize.symbol }}</span>
+                    <span>{{ prize.symbol }}</span>
+                    <span>{{ prize.symbol }}</span>
+                  {% endif %}
+                </div>
+                <div class="slot-legend-text">
+                  <span class="slot-legend-label">{{ prize.label }}</span>
+                  <span class="slot-legend-payout">Line win pays {{ '%.2f'|format(prize.multiplier) }}× wager</span>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+        <form method="post" action="{{ url_for('main.play_slot') }}" class="slot-controls" data-role="slot-form">
           <input type="hidden" name="slot_id" value="{{ slot.key }}">
           <label>
             Wager
             <input type="number" name="wager" min="0.01" step="0.01" value="5.00" required>
           </label>
-          <button type="submit" class="primary">Spin</button>
+          <button type="submit" class="primary">Pull the lever</button>
         </form>
-      </div>
+        <p class="slot-status" role="status" aria-live="polite"></p>
+      </article>
     {% endfor %}
   </div>
 </section>
@@ -40,4 +103,8 @@
     <button type="submit" class="primary">Deal</button>
   </form>
 </section>
+{% endblock %}
+
+{% block scripts %}
+  <script defer src="{{ url_for('static', filename='slot.js') }}"></script>
 {% endblock %}

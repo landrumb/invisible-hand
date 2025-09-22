@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 try:  # Python 3.11+
     import tomllib  # type: ignore[attr-defined]
@@ -28,20 +28,64 @@ CASINO_SYMBOL = "CT"
 
 
 @dataclass
+class SlotPrize:
+    symbol: str
+    label: str
+    multiplier: float
+    image: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "symbol": self.symbol,
+            "label": self.label,
+            "multiplier": self.multiplier,
+            "image": self.image,
+        }
+
+
+@dataclass
 class SlotMachine:
     key: str
     name: str
     theme: str
-    symbols: List[str]
+    prizes: List[SlotPrize]
     payout_rate: float = 0.95
+
+    @property
+    def symbols(self) -> List[str]:
+        return [prize.symbol for prize in self.prizes]
+
+    def serialize_prizes(self) -> List[Dict[str, object]]:
+        return [prize.to_dict() for prize in self.prizes]
+
+
+@dataclass
+class SlotLineWin:
+    line_type: str
+    index: int
+    coordinates: List[Tuple[int, int]]
+    prize: SlotPrize
+    payout: float
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "line_type": self.line_type,
+            "index": self.index,
+            "coordinates": [[col, row] for col, row in self.coordinates],
+            "multiplier": self.prize.multiplier,
+            "payout": self.payout,
+            "prize": self.prize.to_dict(),
+        }
 
 
 @dataclass
 class SlotSpinResult:
     machine: SlotMachine
-    reels: List[str]
+    reels: List[List[str]]
     outcome: str
     player_delta: float
+    prize: Optional[SlotPrize] = None
+    wins: Optional[List[SlotLineWin]] = None
 
 
 @dataclass
@@ -95,16 +139,71 @@ class CasinoManager:
             payout = float(override.get("payout", default_slot_rate))
             name = str(override.get("name", slot.name))
             theme = str(override.get("theme", slot.theme))
-            symbols = (
-                list(override.get("symbols", slot.symbols))
-                if isinstance(override.get("symbols"), list)
-                else slot.symbols
-            )
+            base_prizes = [
+                SlotPrize(
+                    symbol=prize.symbol,
+                    label=prize.label,
+                    multiplier=prize.multiplier,
+                    image=prize.image,
+                )
+                for prize in slot.prizes
+            ]
+            override_symbols = override.get("symbols")
+            if isinstance(override_symbols, list):
+                updated = []
+                for index, prize in enumerate(base_prizes):
+                    try:
+                        symbol_override = override_symbols[index]
+                    except IndexError:
+                        symbol_override = prize.symbol
+                    if isinstance(symbol_override, str) and symbol_override.strip():
+                        updated.append(
+                            SlotPrize(
+                                symbol=symbol_override.strip(),
+                                label=prize.label,
+                                multiplier=prize.multiplier,
+                                image=prize.image,
+                            )
+                        )
+                    else:
+                        updated.append(prize)
+                base_prizes = updated
+
+            override_prizes = override.get("prizes")
+            prizes = base_prizes
+            if isinstance(override_prizes, list):
+                custom: List[SlotPrize] = []
+                for entry in override_prizes:
+                    if not isinstance(entry, dict):
+                        continue
+                    symbol = str(entry.get("symbol", "")).strip()
+                    if not symbol:
+                        continue
+                    label = str(entry.get("label", symbol)).strip() or symbol
+                    try:
+                        multiplier = float(entry.get("multiplier", 1.0))
+                    except (TypeError, ValueError):
+                        multiplier = 1.0
+                    image = entry.get("image")
+                    if isinstance(image, str) and image.strip():
+                        image_value = image.strip()
+                    else:
+                        image_value = None
+                    custom.append(
+                        SlotPrize(
+                            symbol=symbol,
+                            label=label,
+                            multiplier=max(0.0, multiplier),
+                            image=image_value,
+                        )
+                    )
+                if custom:
+                    prizes = custom
             slots[key] = SlotMachine(
                 key=key,
                 name=name,
                 theme=theme,
-                symbols=symbols,
+                prizes=prizes,
                 payout_rate=max(0.0, min(0.999, payout)),
             )
         self.slots = slots
@@ -132,19 +231,40 @@ class CasinoManager:
                 key="nova",
                 name="Nebula Nights",
                 theme="Cosmic auroras and shimmering stardust",
-                symbols=["🌠", "🪐", "✨", "☄️", "💫", "🌌"],
+                prizes=[
+                    SlotPrize("🌠", "Shooting Stars", 1.6),
+                    SlotPrize("🪐", "Orbiting Planets", 1.4),
+                    SlotPrize("✨", "Stellar Glints", 1.2),
+                    SlotPrize("☄️", "Comet Flash", 1.0),
+                    SlotPrize("💫", "Gravity Loop", 0.8),
+                    SlotPrize("🌌", "Galactic Glow", 0.6),
+                ],
             ),
             "neon": SlotMachine(
                 key="neon",
                 name="Neon Mirage",
                 theme="Cyberpunk skylines flickering in synthwave hues",
-                symbols=["🔮", "💎", "🎰", "🛸", "💡", "🪙"],
+                prizes=[
+                    SlotPrize("🔮", "Crystal Visions", 1.7),
+                    SlotPrize("💎", "Diamond Pulse", 1.5),
+                    SlotPrize("🎰", "Jackpot Echo", 1.3),
+                    SlotPrize("🛸", "Hover Cab", 1.1),
+                    SlotPrize("💡", "Neon Spark", 0.9),
+                    SlotPrize("🪙", "Token Toss", 0.7),
+                ],
             ),
             "abyss": SlotMachine(
                 key="abyss",
                 name="Abyssal Fortune",
                 theme="Deep-sea treasures guarded by luminous creatures",
-                symbols=["🐚", "🪸", "🐙", "🦑", "🔱", "🐠"],
+                prizes=[
+                    SlotPrize("🐚", "Pearl Cache", 1.8),
+                    SlotPrize("🪸", "Coral Bloom", 1.5),
+                    SlotPrize("🐙", "Octo Whirl", 1.2),
+                    SlotPrize("🦑", "Ink Trail", 1.0),
+                    SlotPrize("🔱", "Tidal Crest", 0.85),
+                    SlotPrize("🐠", "School Swirl", 0.65),
+                ],
             ),
         }
 
@@ -228,24 +348,91 @@ class CasinoManager:
     def play_slot(self, key: str, wager: float) -> SlotSpinResult:
         if wager <= 0:
             raise ValueError("Wager must be positive.")
+
         slot = self.get_slot(key)
-        win_probability = slot.payout_rate / 2.0
-        win_probability = max(0.0, min(1.0, win_probability))
-        win = random.random() < win_probability
-        if win:
-            symbol = random.choice(slot.symbols)
-            reels = [symbol, symbol, symbol]
-            player_delta = round(wager, 2)
-            outcome = "win"
+        symbol_choices = slot.symbols or ["❓"]
+        prize_lookup: Dict[str, SlotPrize] = {prize.symbol: prize for prize in slot.prizes}
+
+        reels: List[List[str]] = []
+        for _ in range(3):
+            column = [random.choice(symbol_choices) for _ in range(3)]
+            reels.append(column)
+
+        win_probability = max(0.0, min(1.0, slot.payout_rate))
+        wins = self._evaluate_slot_grid(reels, prize_lookup, wager)
+        if not wins and random.random() < win_probability and slot.prizes:
+            # Force a winning line to better align with the configured payout rate
+            target_prize = random.choice(slot.prizes)
+            line_definitions = self._slot_line_definitions()
+            line_type, index, coordinates = random.choice(line_definitions)
+            for col, row in coordinates:
+                reels[col][row] = target_prize.symbol
+            wins = self._evaluate_slot_grid(reels, prize_lookup, wager)
+
+        total_payout = sum(win.payout for win in wins)
+        if wins:
+            player_delta = round(total_payout - wager, 2)
         else:
-            reels = [random.choice(slot.symbols) for _ in range(3)]
-            # Ensure we don't accidentally display a full match on a loss
-            if len(set(reels)) == 1:
-                reels[1] = random.choice([s for s in slot.symbols if s != reels[0]])
             player_delta = round(-wager, 2)
+
+        if player_delta > 0:
+            outcome = "win"
+        elif player_delta == 0:
+            outcome = "push"
+        else:
             outcome = "lose"
+
+        prize = wins[0].prize if wins else None
         self._set_pending_profit(self._pending_profit - player_delta, commit=False)
-        return SlotSpinResult(machine=slot, reels=reels, outcome=outcome, player_delta=player_delta)
+        return SlotSpinResult(
+            machine=slot,
+            reels=reels,
+            outcome=outcome,
+            player_delta=player_delta,
+            prize=prize,
+            wins=wins,
+        )
+
+    def _evaluate_slot_grid(
+        self,
+        reels: List[List[str]],
+        prize_lookup: Dict[str, SlotPrize],
+        wager: float,
+    ) -> List[SlotLineWin]:
+        wins: List[SlotLineWin] = []
+        line_definitions = self._slot_line_definitions()
+        for line_type, index, coordinates in line_definitions:
+            symbols = [reels[col][row] for col, row in coordinates]
+            if len(set(symbols)) != 1:
+                continue
+            symbol = symbols[0]
+            prize = prize_lookup.get(symbol)
+            if not prize:
+                continue
+            payout = round(wager * prize.multiplier, 2)
+            wins.append(
+                SlotLineWin(
+                    line_type=line_type,
+                    index=index,
+                    coordinates=coordinates,
+                    prize=prize,
+                    payout=payout,
+                )
+            )
+        return wins
+
+    @staticmethod
+    def _slot_line_definitions() -> List[Tuple[str, int, List[Tuple[int, int]]]]:
+        lines: List[Tuple[str, int, List[Tuple[int, int]]]] = []
+        for row in range(3):
+            coords = [(col, row) for col in range(3)]
+            lines.append(("row", row, coords))
+        for col in range(3):
+            coords = [(col, row) for row in range(3)]
+            lines.append(("column", col, coords))
+        lines.append(("diagonal", 0, [(0, 0), (1, 1), (2, 2)]))
+        lines.append(("diagonal", 1, [(2, 0), (1, 1), (0, 2)]))
+        return lines
 
     def play_blackjack(self, wager: float) -> BlackjackResult:
         if wager <= 0:

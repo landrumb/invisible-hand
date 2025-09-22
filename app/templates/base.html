@@ -46,10 +46,11 @@
         {% endif %}
       {% endwith %}
       {% block content %}{% endblock %}
-    </main>
+  </main>
 
-    <footer class="app-footer">
-      Landrum et al. · {{ now.year }}
-    </footer>
-  </body>
+  <footer class="app-footer">
+    Landrum et al. · {{ now.year }}
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
 </html>
