@@ -299,19 +299,26 @@ def execute_equity_trade(user, symbol: str, quantity: float) -> TradeResult:
     price = max(MIN_PRICE, security.last_price)
     notional = price * abs(quantity)
     holding = SecurityHolding.query.filter_by(user_id=user.id, security_symbol=symbol).first()
+    if not holding:
+        holding = SecurityHolding(
+            user_id=user.id,
+            security_symbol=symbol,
+            quantity=0.0,
+            average_price=0.0,
+        )
+    current_qty = float(holding.quantity or 0.0)
+    avg_price = float(holding.average_price or 0.0)
     if quantity > 0:
         if user.balance < notional:
             raise ValueError("Insufficient balance to buy.")
-        if not holding:
-            holding = SecurityHolding(user_id=user.id, security_symbol=symbol)
-        new_qty = holding.quantity + quantity
-        total_cost = holding.quantity * holding.average_price + notional
+        new_qty = current_qty + quantity
+        total_cost = current_qty * avg_price + notional
         holding.quantity = new_qty
         holding.average_price = total_cost / new_qty if new_qty else 0.0
     else:
-        if not holding or holding.quantity < abs(quantity):
+        if current_qty < abs(quantity):
             raise ValueError("Not enough shares to sell.")
-        new_qty = holding.quantity + quantity
+        new_qty = current_qty + quantity
         holding.quantity = new_qty
         if new_qty <= 0:
             holding.quantity = 0.0
@@ -341,19 +348,21 @@ def execute_option_trade(user, listing_id: int, quantity: int) -> TradeResult:
     premium = simulator.price_option(listing)
     notional = premium * abs(quantity)
     holding = OptionHolding.query.filter_by(user_id=user.id, listing_id=listing_id).first()
+    if not holding:
+        holding = OptionHolding(user_id=user.id, listing_id=listing_id, quantity=0, average_premium=0.0)
+    current_qty = int(holding.quantity or 0)
+    avg_premium = float(holding.average_premium or 0.0)
     if quantity > 0:
         if user.balance < notional:
             raise ValueError("Insufficient balance to buy option.")
-        if not holding:
-            holding = OptionHolding(user_id=user.id, listing_id=listing_id)
-        new_qty = holding.quantity + quantity
-        total_premium = holding.quantity * holding.average_premium + notional
+        new_qty = current_qty + quantity
+        total_premium = current_qty * avg_premium + notional
         holding.quantity = new_qty
         holding.average_premium = total_premium / new_qty if new_qty else 0.0
     else:
-        if not holding or holding.quantity < abs(quantity):
+        if current_qty < abs(quantity):
             raise ValueError("Not enough contracts to sell.")
-        holding.quantity += quantity
+        holding.quantity = current_qty + quantity
         if holding.quantity <= 0:
             holding.quantity = 0
             holding.average_premium = 0.0
@@ -387,7 +396,7 @@ def execute_future_trade(user, listing_id: int, quantity: int) -> TradeResult:
     simulator: MarketSimulator = current_app.market_simulator
     forward_price = simulator.price_future(listing)
     holding = FutureHolding.query.filter_by(user_id=user.id, listing_id=listing_id).first()
-    previous_qty = holding.quantity if holding else 0
+    previous_qty = int(holding.quantity) if (holding and holding.quantity is not None) else 0
     new_qty = previous_qty + quantity
     prev_margin = forward_price * abs(previous_qty) * 0.1
     new_margin = forward_price * abs(new_qty) * 0.1
