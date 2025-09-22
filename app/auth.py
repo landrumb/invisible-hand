@@ -24,7 +24,7 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
     if not require_oauth():
-        return render_template("login.html")
+        return render_template("login.html", allow_guest=True)
     redirect_uri = url_for("auth.authorize", _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
 
@@ -64,3 +64,25 @@ def logout():
     session.pop("token", None)
     flash("You have been signed out.", "info")
     return redirect(url_for("main.index"))
+
+
+@bp.route("/guest-login", methods=["POST"])
+def guest_login():
+    if current_user.is_authenticated:
+        return redirect(url_for("main.dashboard"))
+
+    user = User.query.filter_by(google_id="guest").first()
+    if not user:
+        user = User(
+            google_id="guest",
+            email="guest@example.com",
+            name="Guest",
+            role=Role.PLAYER,
+        )
+        db.session.add(user)
+        db.session.commit()
+
+    login_user(user)
+    session["token"] = {"userinfo": {"name": user.name}}
+    flash("Signed in temporarily as Guest.", "info")
+    return redirect(url_for("main.dashboard"))

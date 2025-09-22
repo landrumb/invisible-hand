@@ -4,5 +4,11 @@
 <section class="panel">
   <h2>Sign in</h2>
   <p>Google OAuth is not configured. Set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> to enable authentication.</p>
+  {% if allow_guest %}
+  <form action="{{ url_for('auth.guest_login') }}" method="post" class="form">
+    <button type="submit" class="button">Continue as Guest</button>
+    <p class="hint">Temporary access with a shared guest account.</p>
+  </form>
+  {% endif %}
 </section>
 {% endblock %}
