@@ -6,6 +6,7 @@
     <h2>{{ current_user.name }}</h2>
     <p class="stat">Balance: <strong>{{ '%.2f'|format(balance) }}</strong></p>
     <p class="stat">Role: <strong>{{ current_user.role.value|capitalize }}</strong></p>
+    <p class="stat">User ID: <strong>{{ current_user.id }}</strong></p>
     <div class="actions">
       <a class="button" href="{{ url_for('main.single_player') }}">Play solo game</a>
       <a class="button" href="{{ url_for('main.prisoners_dilemma') }}">Enter Prisoner's Dilemma</a>
