@@ -7,6 +7,7 @@
     <p class="stat">Balance: <strong>{{ '%.2f'|format(balance) }}</strong></p>
     <p class="stat">Role: <strong>{{ current_user.role.value|capitalize }}</strong></p>
     <p class="stat">User ID: <strong>{{ current_user.id }}</strong></p>
+    <p class="stat">Handle: <strong>{{ current_user.email.split('@')[0] }}</strong></p>
     <div class="actions">
       <a class="button" href="{{ url_for('main.single_player') }}">Play solo game</a>
       <a class="button" href="{{ url_for('main.prisoners_dilemma') }}">Enter Prisoner's Dilemma</a>
@@ -18,6 +19,54 @@
         <a class="button" href="{{ url_for('main.admin_dashboard') }}">Admin Dashboard</a>
       {% endif %}
     </div>
+    {% if qr_data_uri %}
+      <div class="qr-wrapper">
+        <img src="{{ qr_data_uri }}" alt="QR code to send or request credits from {{ current_user.name }}" />
+        <p>Share this code so others can target <strong>{{ current_user.email.split('@')[0] }}</strong> when sending or requesting credits.</p>
+      </div>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <h3>Send Credits</h3>
+    <form class="form" method="post" action="{{ url_for('main.handle_transfer') }}">
+      <input type="hidden" name="action" value="send" />
+      <label>
+        Recipient handle
+        <input type="text" name="handle" value="{{ target_handle }}" placeholder="friend" required />
+      </label>
+      <label>
+        Amount
+        <input type="number" name="amount" min="0.01" step="0.01" placeholder="10.00" required />
+      </label>
+      <label>
+        Message <span class="muted">(optional)</span>
+        <textarea name="message" placeholder="What is this transfer for?"></textarea>
+      </label>
+      <div class="actions">
+        <button type="submit" class="button primary">Send credits</button>
+      </div>
+    </form>
+  </article>
+  <article class="panel">
+    <h3>Request Credits</h3>
+    <form class="form" method="post" action="{{ url_for('main.handle_transfer') }}">
+      <input type="hidden" name="action" value="request" />
+      <label>
+        From handle
+        <input type="text" name="handle" value="{{ target_handle }}" placeholder="merchant" required />
+      </label>
+      <label>
+        Amount
+        <input type="number" name="amount" min="0.01" step="0.01" placeholder="25.00" required />
+      </label>
+      <label>
+        Message <span class="muted">(optional)</span>
+        <textarea name="message" placeholder="Add a note to your request."></textarea>
+      </label>
+      <div class="actions">
+        <button type="submit" class="button">Request credits</button>
+      </div>
+    </form>
   </article>
   <article class="panel">
     <h3>Recent Transactions</h3>
@@ -32,6 +81,59 @@
         <li>No transactions yet.</li>
       {% endfor %}
     </ul>
+  </article>
+  <article class="panel">
+    <h3>Incoming Requests</h3>
+    {% if incoming_requests %}
+      <div class="request-list">
+        {% for req in incoming_requests %}
+          <div class="request-item">
+            <header>
+              <strong>{{ req.requester.name }}</strong>
+              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            </header>
+            <p class="muted">requested <strong>{{ '%.2f'|format(req.amount) }}</strong> credits</p>
+            {% if req.message %}
+              <p class="muted">“{{ req.message }}”</p>
+            {% endif %}
+            <div class="request-item-actions">
+              <form method="post" action="{{ url_for('main.respond_money_request', request_id=req.id) }}">
+                <input type="hidden" name="action" value="accept" />
+                <button type="submit" class="button primary">Send now</button>
+              </form>
+              <form method="post" action="{{ url_for('main.respond_money_request', request_id=req.id) }}">
+                <input type="hidden" name="action" value="decline" />
+                <button type="submit" class="button danger">Decline</button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">No pending requests.</p>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <h3>Your Requests</h3>
+    {% if outgoing_requests %}
+      <div class="request-list">
+        {% for req in outgoing_requests %}
+          <div class="request-item">
+            <header>
+              <strong>{{ req.target.name }}</strong>
+              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            </header>
+            <p class="muted">asked for <strong>{{ '%.2f'|format(req.amount) }}</strong> credits</p>
+            {% if req.message %}
+              <p class="muted">“{{ req.message }}”</p>
+            {% endif %}
+            <p class="muted">Status: {{ req.status|capitalize }}</p>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">You haven't made any requests yet.</p>
+    {% endif %}
   </article>
   {% if active_match %}
     <article class="panel">
