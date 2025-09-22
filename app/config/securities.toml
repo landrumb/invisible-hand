@@ -19,8 +19,8 @@ options_strike_multipliers = [0.9, 1.0, 1.1]
 futures_tenors = [14, 35]
 
 [securities.CT]
-name = "Carbon Tether"
-description = "Tokenized carbon removal contracts with regulated off-take agreements."
+name = "Casino Technologies"
+description = "Web3 gaming and entertainment company offering slot machines and table games."
 initial_price = 42.0
 drift = 0.02
 volatility = 0.18
