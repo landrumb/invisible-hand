@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Union
 
 from flask_login import UserMixin
 from sqlalchemy import CheckConstraint, Enum as SqlEnum
@@ -13,13 +14,24 @@ class Role(str, Enum):
     ADMIN = "admin"
 
     _LEVELS = {
-        PLAYER: 0,
-        MERCHANT: 1,
-        ADMIN: 2,
+        "player": 0,
+        "merchant": 1,
+        "admin": 2,
     }
 
-    def at_least(self, other: "Role") -> bool:
-        return self._LEVELS[self] >= self._LEVELS[other]
+    def _rank(self) -> int:
+        if self is Role.PLAYER:
+            return 0
+        if self is Role.MERCHANT:
+            return 1
+        if self is Role.ADMIN:
+            return 2
+        return -1
+
+    def at_least(self, other: Union["Role", str]) -> bool:
+        if not isinstance(other, Role):
+            other = Role(other)
+        return self._rank() >= other._rank()
 
 
 class User(UserMixin, db.Model):
@@ -42,8 +54,9 @@ class User(UserMixin, db.Model):
     def get_id(self):
         return str(self.id)
 
-    def has_privilege(self, role: Role) -> bool:
-        return self.role.at_least(role)
+    def has_privilege(self, role: Union[Role, str]) -> bool:
+        current_role = self.role if isinstance(self.role, Role) else Role(self.role)
+        return current_role.at_least(role)
 
     @property
     def is_admin(self):
