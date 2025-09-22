@@ -867,6 +867,9 @@ def admin_dashboard():
     sp_mult = AppSetting.get("game:single_player:multiplier", "1.0")
     pd_dec = AppSetting.get("game:prisoners:decrease_pct", AppSetting.get("game_reward_decrease_pct", "5.0"))
     pd_mult = AppSetting.get("game:prisoners:multiplier", "1.0")
+    casino_manager = get_casino_manager()
+    casino_status = casino_manager.get_status()
+
     return render_template(
         "admin.html",
         products=products,
@@ -879,6 +882,7 @@ def admin_dashboard():
         sp_mult=sp_mult,
         pd_dec=pd_dec,
         pd_mult=pd_mult,
+        casino_status=casino_status,
     )
 
 
@@ -920,6 +924,21 @@ def admin_transactions_feed():
         for txn in transactions
     ]
     return jsonify(data)
+
+
+@bp.route("/admin/casino/publish", methods=["POST"])
+@login_required
+def admin_casino_publish():
+    if not current_user.is_admin:
+        abort(403)
+    manager = get_casino_manager()
+    try:
+        summary = manager.publish_earnings_if_due(force=True)
+        flash(f"Casino earnings publication triggered: {summary}", "success")
+    except Exception as exc:
+        db.session.rollback()
+        flash(f"Casino earnings publication failed: {exc}", "error")
+    return redirect(url_for("main.admin_dashboard"))
 
 
 def build_price_stats(products):
