@@ -64,6 +64,7 @@ class MarketSimulator:
         self.config_path = config_path
         self.interval = 5.0
         self.risk_free_rate = 0.01
+        self.seconds_in_year = SECONDS_IN_YEAR
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -76,12 +77,45 @@ class MarketSimulator:
         raw = _load_toml(self.config_path)
         market_cfg = raw.get("market", {})
         self.interval = float(market_cfg.get("update_interval_seconds", 5))
+        self.seconds_in_year = float(market_cfg.get("real_time_year_seconds", SECONDS_IN_YEAR))
         risk_cfg = raw.get("risk", {})
         self.risk_free_rate = float(risk_cfg.get("risk_free_rate", 0.01))
+        deriv_cfg = raw.get("derivatives", {})
+        default_option_tenors_min = [int(x) for x in deriv_cfg.get("options_tenors_minutes", [7, 30])]
+        default_option_strike_mults = [
+            float(x) for x in deriv_cfg.get("options_strike_multipliers", [0.9, 1.0, 1.1])
+        ]
+        default_future_tenors_min = [int(x) for x in deriv_cfg.get("futures_tenors_minutes", [30])]
 
         securities_cfg = raw.get("securities", {})
         configs: Dict[str, SecurityConfig] = {}
         for symbol, payload in securities_cfg.items():
+            # Per-security overrides. Support legacy day-based keys by mapping to minutes of real time.
+            legacy_opt_days = payload.get("options_tenors")
+            legacy_fut_days = payload.get("futures_tenors")
+            if legacy_opt_days is not None:
+                try:
+                    option_tenors_min = [
+                        max(1, int(round((float(d) / 365.0) * (self.seconds_in_year / 60.0)))) for d in legacy_opt_days
+                    ]
+                except Exception:
+                    option_tenors_min = default_option_tenors_min
+            else:
+                option_tenors_min = [int(x) for x in payload.get("options_tenors_minutes", default_option_tenors_min)]
+
+            if legacy_fut_days is not None:
+                try:
+                    future_tenors_min = [
+                        max(1, int(round((float(d) / 365.0) * (self.seconds_in_year / 60.0)))) for d in legacy_fut_days
+                    ]
+                except Exception:
+                    future_tenors_min = default_future_tenors_min
+            else:
+                future_tenors_min = [int(x) for x in payload.get("futures_tenors_minutes", default_future_tenors_min)]
+
+            option_strike_mults = [
+                float(x) for x in payload.get("options_strike_multipliers", default_option_strike_mults)
+            ]
             configs[symbol] = SecurityConfig(
                 symbol=symbol,
                 name=str(payload.get("name", symbol)),
@@ -93,11 +127,9 @@ class MarketSimulator:
                 fundamental_value=float(payload.get("fundamental_value", 100.0)),
                 liquidity=max(1e-6, float(payload.get("liquidity", 1.0))),
                 impact=max(0.0, float(payload.get("impact", 0.01))),
-                options_tenors=[int(x) for x in payload.get("options_tenors", [7, 30])],
-                options_strike_multipliers=[
-                    float(x) for x in payload.get("options_strike_multipliers", [0.9, 1.0, 1.1])
-                ],
-                futures_tenors=[int(x) for x in payload.get("futures_tenors", [30])],
+                options_tenors=option_tenors_min,  # minutes
+                options_strike_multipliers=option_strike_mults,
+                futures_tenors=future_tenors_min,  # minutes
             )
         self.configs = configs
 
@@ -181,7 +213,7 @@ class MarketSimulator:
                 if not security:
                     continue
                 price = max(MIN_PRICE, security.last_price)
-                dt = max(self.interval, 1.0) / SECONDS_IN_YEAR
+                dt = max(self.interval, 1.0) / self.seconds_in_year
                 mean_reversion_term = config.mean_reversion * (config.fundamental_value - price) / max(price, 1e-6)
                 drift = config.drift + mean_reversion_term
                 sigma = max(0.0, config.volatility)
@@ -202,7 +234,7 @@ class MarketSimulator:
             return 0.0
         spot = max(MIN_PRICE, security.last_price)
         strike = listing.strike
-        time_to_expiry = max(0.0, (listing.expiration - datetime.utcnow()).total_seconds()) / SECONDS_IN_YEAR
+        time_to_expiry = max(0.0, (listing.expiration - datetime.utcnow()).total_seconds()) / self.seconds_in_year
         if time_to_expiry <= 0:
             if listing.option_type is OptionType.CALL:
                 return max(0.0, spot - strike)
@@ -217,7 +249,7 @@ class MarketSimulator:
             return 0.0
         spot = max(MIN_PRICE, security.last_price)
         time_to_delivery = max(
-            0.0, (listing.delivery_date - datetime.utcnow()).total_seconds() / SECONDS_IN_YEAR
+            0.0, (listing.delivery_date - datetime.utcnow()).total_seconds() / self.seconds_in_year
         )
         rate = self.risk_free_rate
         return spot * math.exp(rate * time_to_delivery)
@@ -254,7 +286,9 @@ class MarketSimulator:
     def _ensure_option_listings(self, security: Security, config: SecurityConfig, now: datetime) -> None:
         base_price = max(MIN_PRICE, security.last_price or config.initial_price)
         for tenor in config.options_tenors:
-            expiration = (now + timedelta(days=tenor)).replace(second=0, microsecond=0)
+            # Tenors are specified in real-time minutes; convert to seconds
+            tenor_seconds = max(60, int(float(tenor) * 60.0))
+            expiration = (now + timedelta(seconds=tenor_seconds)).replace(second=0, microsecond=0)
             for multiplier in config.options_strike_multipliers:
                 strike = round(base_price * multiplier, 2)
                 for option_type in (OptionType.CALL, OptionType.PUT):
@@ -276,7 +310,9 @@ class MarketSimulator:
 
     def _ensure_future_listings(self, security: Security, config: SecurityConfig, now: datetime) -> None:
         for tenor in config.futures_tenors:
-            delivery_date = (now + timedelta(days=tenor)).replace(second=0, microsecond=0)
+            # Tenors are specified in real-time minutes; convert to seconds
+            tenor_seconds = max(60, int(float(tenor) * 60.0))
+            delivery_date = (now + timedelta(seconds=tenor_seconds)).replace(second=0, microsecond=0)
             existing = FutureListing.query.filter_by(
                 security_symbol=security.symbol, delivery_date=delivery_date
             ).first()

@@ -68,7 +68,7 @@
           {% set holding = quote.holding %}
           <tr>
             <td class="mono">{{ listing.security_symbol }} {{ listing.option_type.value|upper }}</td>
-            <td>{{ listing.expiration.strftime('%Y-%m-%d') }}</td>
+            <td title="{{ quote.expiration_str }}">{{ quote.minutes_left }} min</td>
             <td class="mono">{{ '%.2f'|format(listing.strike) }}</td>
             <td class="mono">{{ '%.2f'|format(quote.premium) }}</td>
             <td>
@@ -113,7 +113,7 @@
           {% set holding = quote.holding %}
           <tr>
             <td class="mono">{{ listing.security_symbol }} FUT</td>
-            <td>{{ listing.delivery_date.strftime('%Y-%m-%d') }}</td>
+            <td title="{{ quote.delivery_str }}">{{ quote.minutes_left }} min</td>
             <td class="mono">{{ '%.2f'|format(quote.forward) }}</td>
             <td>
               {% if holding and holding.quantity %}

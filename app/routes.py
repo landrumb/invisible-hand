@@ -119,33 +119,44 @@ def securities_hub():
         for holding in FutureHolding.query.filter_by(user_id=current_user.id).all()
     }
 
+    now = datetime.utcnow()
     active_options = (
         OptionListing.query.filter(OptionListing.expiration > datetime.utcnow())
         .order_by(OptionListing.security_symbol.asc(), OptionListing.expiration.asc())
         .all()
     )
-    option_quotes = [
-        {
-            "listing": listing,
-            "premium": simulator.price_option(listing),
-            "holding": option_positions.get(listing.id),
-        }
-        for listing in active_options
-    ]
+    option_quotes = []
+    for listing in active_options:
+        seconds_left = max(0.0, (listing.expiration - now).total_seconds())
+        minutes_left = int((seconds_left + 59) // 60)
+        option_quotes.append(
+            {
+                "listing": listing,
+                "premium": simulator.price_option(listing),
+                "holding": option_positions.get(listing.id),
+                "minutes_left": minutes_left,
+                "expiration_str": listing.expiration.strftime('%Y-%m-%d %H:%M:%S UTC'),
+            }
+        )
 
     active_futures = (
         FutureListing.query.filter(FutureListing.delivery_date > datetime.utcnow())
         .order_by(FutureListing.security_symbol.asc(), FutureListing.delivery_date.asc())
         .all()
     )
-    future_quotes = [
-        {
-            "listing": listing,
-            "forward": simulator.price_future(listing),
-            "holding": future_positions.get(listing.id),
-        }
-        for listing in active_futures
-    ]
+    future_quotes = []
+    for listing in active_futures:
+        seconds_left = max(0.0, (listing.delivery_date - now).total_seconds())
+        minutes_left = int((seconds_left + 59) // 60)
+        future_quotes.append(
+            {
+                "listing": listing,
+                "forward": simulator.price_future(listing),
+                "holding": future_positions.get(listing.id),
+                "minutes_left": minutes_left,
+                "delivery_str": listing.delivery_date.strftime('%Y-%m-%d %H:%M:%S UTC'),
+            }
+        )
 
     return render_template(
         "securities.html",
