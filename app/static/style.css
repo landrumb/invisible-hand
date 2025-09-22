@@ -134,6 +134,10 @@ button.danger:hover {
   box-shadow: inset 0 0 0 2px rgba(26, 255, 213, 0.08);
 }
 
+.panel.wide {
+  grid-column: 1 / -1;
+}
+
 .grid {
   display: grid;
   gap: 1.5rem;
@@ -157,6 +161,85 @@ button.danger:hover {
 
 .list li:last-child {
   border-bottom: none;
+}
+
+.quotes {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.quotes th,
+.quotes td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.quotes tbody tr:hover {
+  background: rgba(26, 255, 213, 0.05);
+}
+
+.quotes.compact th,
+.quotes.compact td {
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.trade-form {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.trade-form input[type="number"] {
+  width: 4.5rem;
+  padding: 0.3rem 0.4rem;
+  background: #0f161d;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text);
+  border-radius: 4px;
+}
+
+.trade-form button {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.change.positive,
+.amount.positive {
+  color: var(--accent);
+}
+
+.change.negative,
+.amount.negative {
+  color: var(--danger);
+}
+
+.description {
+  max-width: 240px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 
 .amount.positive {

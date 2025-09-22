@@ -10,6 +10,7 @@
     <div class="actions">
       <a class="button" href="{{ url_for('main.single_player') }}">Play solo game</a>
       <a class="button" href="{{ url_for('main.prisoners_dilemma') }}">Enter Prisoner's Dilemma</a>
+      <a class="button" href="{{ url_for('main.securities_hub') }}">Visit Securities Desk</a>
       {% if current_user.is_merchant %}
         <a class="button" href="{{ url_for('main.merchant_portal') }}">Open Merchant Portal</a>
       {% endif %}

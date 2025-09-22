@@ -17,14 +17,28 @@ from flask_login import current_user, login_required
 
 from . import db
 from .models import (
+    FutureHolding,
+    FutureListing,
+    OptionHolding,
+    OptionListing,
+    OptionType,
     PriceHistory,
     PrisonersMatch,
     Product,
     QueueEntry,
     Role,
+    Security,
+    SecurityHolding,
+    SecurityPriceHistory,
     Transaction,
     User,
     AppSetting,
+)
+from .securities import (
+    execute_equity_trade,
+    execute_future_trade,
+    execute_option_trade,
+    get_simulator,
 )
 
 
@@ -85,6 +99,184 @@ def dashboard():
         transactions=latest_transactions,
         active_match=active_match,
     )
+
+
+@bp.route("/securities")
+@login_required
+def securities_hub():
+    simulator = get_simulator()
+    securities = Security.query.order_by(Security.symbol.asc()).all()
+    security_positions = {
+        holding.security_symbol: holding
+        for holding in SecurityHolding.query.filter_by(user_id=current_user.id).all()
+    }
+    option_positions = {
+        holding.listing_id: holding
+        for holding in OptionHolding.query.filter_by(user_id=current_user.id).all()
+    }
+    future_positions = {
+        holding.listing_id: holding
+        for holding in FutureHolding.query.filter_by(user_id=current_user.id).all()
+    }
+
+    active_options = (
+        OptionListing.query.filter(OptionListing.expiration > datetime.utcnow())
+        .order_by(OptionListing.security_symbol.asc(), OptionListing.expiration.asc())
+        .all()
+    )
+    option_quotes = [
+        {
+            "listing": listing,
+            "premium": simulator.price_option(listing),
+            "holding": option_positions.get(listing.id),
+        }
+        for listing in active_options
+    ]
+
+    active_futures = (
+        FutureListing.query.filter(FutureListing.delivery_date > datetime.utcnow())
+        .order_by(FutureListing.security_symbol.asc(), FutureListing.delivery_date.asc())
+        .all()
+    )
+    future_quotes = [
+        {
+            "listing": listing,
+            "forward": simulator.price_future(listing),
+            "holding": future_positions.get(listing.id),
+        }
+        for listing in active_futures
+    ]
+
+    return render_template(
+        "securities.html",
+        securities=securities,
+        security_positions=security_positions,
+        option_quotes=option_quotes,
+        future_quotes=future_quotes,
+        update_interval=simulator.interval,
+        risk_free_rate=simulator.risk_free_rate,
+    )
+
+
+@bp.route("/api/securities")
+@login_required
+def securities_snapshot():
+    securities = Security.query.order_by(Security.symbol.asc()).all()
+    payload = []
+    for security in securities:
+        latest_history = (
+            SecurityPriceHistory.query.filter_by(security_symbol=security.symbol)
+            .order_by(SecurityPriceHistory.timestamp.desc())
+            .limit(2)
+            .all()
+        )
+        change = 0.0
+        if len(latest_history) >= 2:
+            change = latest_history[0].price - latest_history[1].price
+        payload.append(
+            {
+                "symbol": security.symbol,
+                "name": security.name,
+                "price": security.last_price,
+                "updated_at": security.updated_at.isoformat(),
+                "description": security.description,
+                "change": change,
+            }
+        )
+    return jsonify(payload)
+
+
+@bp.route("/securities/trade", methods=["POST"])
+@login_required
+def trade_security():
+    symbol = request.form.get("symbol")
+    side = request.form.get("side")
+    quantity = request.form.get("quantity", type=float)
+    if not symbol or not quantity or side not in {"buy", "sell"}:
+        flash("Please choose a security and quantity.", "error")
+        return redirect(url_for("main.securities_hub"))
+    quantity = abs(quantity)
+    signed_quantity = quantity if side == "buy" else -quantity
+    try:
+        result = execute_equity_trade(current_user, symbol, signed_quantity)
+        amount = result.cash_delta
+        record_transaction(
+            current_user,
+            amount,
+            result.description,
+            type_="securities",
+            commit=False,
+        )
+        db.session.commit()
+        flash(f"{result.description} at {result.price:.2f}.", "success")
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("main.securities_hub"))
+
+
+@bp.route("/securities/options/trade", methods=["POST"])
+@login_required
+def trade_option():
+    listing_id = request.form.get("listing_id", type=int)
+    side = request.form.get("side")
+    quantity = request.form.get("quantity", type=int)
+    if not listing_id or not quantity or side not in {"buy", "sell"}:
+        flash("Select an option and quantity.", "error")
+        return redirect(url_for("main.securities_hub"))
+    quantity = abs(quantity)
+    signed_quantity = quantity if side == "buy" else -quantity
+    try:
+        result = execute_option_trade(current_user, listing_id, signed_quantity)
+        amount = result.cash_delta
+        record_transaction(
+            current_user,
+            amount,
+            result.description,
+            type_="options",
+            commit=False,
+        )
+        db.session.commit()
+        flash(f"{result.description} for {result.price:.2f} premium.", "success")
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("main.securities_hub"))
+
+
+@bp.route("/securities/futures/trade", methods=["POST"])
+@login_required
+def trade_future():
+    listing_id = request.form.get("listing_id", type=int)
+    side = request.form.get("side")
+    quantity = request.form.get("quantity", type=int)
+    if not listing_id or not quantity or side not in {"long", "short"}:
+        flash("Select a future and quantity.", "error")
+        return redirect(url_for("main.securities_hub"))
+    quantity = abs(quantity)
+    signed_quantity = quantity if side == "long" else -quantity
+    try:
+        result = execute_future_trade(current_user, listing_id, signed_quantity)
+        amount = result.cash_delta
+        record_transaction(
+            current_user,
+            amount,
+            result.description,
+            type_="futures",
+            commit=False,
+        )
+        db.session.commit()
+        if result.cash_delta < 0:
+            message = f"{result.description}. Margin posted {abs(result.cash_delta):.2f}."
+        elif result.cash_delta > 0:
+            message = f"{result.description}. Margin released {result.cash_delta:.2f}."
+        else:
+            message = f"{result.description}."
+        flash(message, "success")
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("main.securities_hub"))
 
 
 @bp.route("/single-player", methods=["GET", "POST"])
