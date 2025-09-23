@@ -50,6 +50,12 @@
                 </div>
                 <p class="muted">Total eligible shares: {{ '%.2f'|format(total) }}</p>
               </div>
+            {% elif alert.category == 'telestrations' %}
+              <p>
+                <a class="button secondary" href="{{ payload.get('url') or url_for('main.telestrations_hall_of_fame') }}">
+                  View telestrations hall of fame
+                </a>
+              </p>
             {% endif %}
             {% if receipt.read_at %}
               <span class="muted">Read {{ receipt.read_at.strftime('%Y-%m-%d %H:%M') }}</span>

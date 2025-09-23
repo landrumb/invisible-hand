@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Telestrations Turn · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel wide">
+  <h1>Telestrations Relay</h1>
+  <p>Turn {{ turn_index }} of {{ game.max_turns }}</p>
+  {% if last_entry %}
+    <div class="telestration-preview">
+      <h2>Previous clue</h2>
+      {% if last_entry.entry_type == 'description' %}
+        <p class="prompt">“{{ last_entry.text_content }}”</p>
+      {% else %}
+        {% if last_entry.image_available() %}
+          <img src="{{ url_for('main.telestrations_entry_image', entry_id=last_entry.id) }}" alt="Previous drawing" class="telestration-image" />
+        {% else %}
+          <p class="muted">Previous drawing unavailable.</p>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if can_contribute %}
+    <form method="post" {% if expected_type == 'image' %}enctype="multipart/form-data"{% endif %} class="telestration-form">
+      {% if expected_type == 'description' %}
+        <label for="description">Describe what you see</label>
+        <textarea id="description" name="description" rows="4" maxlength="400" required placeholder="A short caption"></textarea>
+      {% else %}
+        <label for="image">Snap or upload a quick drawing</label>
+        <input id="image" name="image" type="file" accept="image/*" capture="environment" required />
+        <p class="muted">Photos and sketches under 3MB are accepted.</p>
+      {% endif %}
+      <button class="button" type="submit">Submit turn</button>
+    </form>
+  {% elif user_has_played %}
+    <p class="muted">You've already contributed to this chain. Sit tight while other players add their turns.</p>
+  {% else %}
+    <p class="muted">This game is no longer accepting moves.</p>
+  {% endif %}
+
+  <p>
+    <a class="button secondary" href="{{ url_for('main.play_game', game_key='telestrations') }}">Back to telestrations hub</a>
+  </p>
+</section>
+{% endblock %}

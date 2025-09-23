@@ -422,3 +422,73 @@ class AppSetting(db.Model):
         except Exception:
             # Table may not exist yet; ignore
             return
+
+
+class TelestrationGame(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    creator_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    prompt = db.Column(db.String(255), nullable=False)
+    max_turns = db.Column(db.Integer, nullable=False, default=8)
+    turns_taken = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    creator = db.relationship("User", foreign_keys=[creator_id], lazy=True)
+    entries = db.relationship(
+        "TelestrationEntry",
+        backref=db.backref("game", lazy=True),
+        order_by="TelestrationEntry.turn_index",
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+
+    def is_active(self) -> bool:
+        return self.completed_at is None and self.turns_taken < self.max_turns
+
+
+class TelestrationEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    game_id = db.Column(db.Integer, db.ForeignKey("telestration_game.id"), nullable=False)
+    contributor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    turn_index = db.Column(db.Integer, nullable=False)
+    entry_type = db.Column(db.String(20), nullable=False)
+    text_content = db.Column(db.Text, nullable=True)
+    image_filename = db.Column(db.String(512), nullable=True)
+    image_mime_type = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    contributor = db.relationship("User", foreign_keys=[contributor_id], lazy=True)
+    upvotes = db.relationship(
+        "TelestrationUpvote",
+        backref=db.backref("entry", lazy=True),
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("game_id", "turn_index", name="uq_telestration_turn"),
+    )
+
+    def contributor_prefix(self) -> str:
+        if not self.contributor or not self.contributor.email:
+            return "unknown"
+        return self.contributor.email.split("@", 1)[0]
+
+    def image_available(self) -> bool:
+        return self.entry_type == "image" and bool(self.image_filename)
+
+    def upvote_count(self) -> int:
+        return len(self.upvotes or [])
+
+
+class TelestrationUpvote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    entry_id = db.Column(db.Integer, db.ForeignKey("telestration_entry.id"), nullable=False)
+    voter_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    voter = db.relationship("User", foreign_keys=[voter_id], lazy=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("entry_id", "voter_id", name="uq_telestration_upvote"),
+    )
