@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Submit Trivia Question · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel game trivia-submit">
+  <h1>Submit a trivia question</h1>
+  <p>Share a multiple choice question for the {{ trivia_set.title }} set. A correct answer should be clearly identifiable from the options.</p>
+  {% if errors %}
+    <div class="form-errors">
+      <ul>
+        {% for error in errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+  <form method="post" class="game-form">
+    <input type="hidden" name="set_key" value="{{ set_key }}">
+    <label>
+      <span>Question prompt</span>
+      <textarea name="prompt" rows="4" required>{{ previous.prompt }}</textarea>
+    </label>
+    <div class="choices-group">
+      <span class="choices-label">Answer options</span>
+      {% set all_choices = previous.choices %}
+      {% set total = all_choices|length + 1 %}
+      {% for idx in range(total) %}
+        {% set value = all_choices[idx] if idx < all_choices|length else '' %}
+        <div class="choice-input">
+          <label class="correct-flag">
+            <input type="radio" name="correct_choice" value="{{ idx }}" {% if previous.correct_choice == idx %}checked{% endif %}>
+            <span>Correct</span>
+          </label>
+          <input type="text" name="choices" value="{{ value }}" placeholder="Option {{ idx + 1 }}">
+        </div>
+      {% endfor %}
+      <p class="choices-help">Leave extra fields blank if you don't need them.</p>
+    </div>
+    <label>
+      <span>Explanation (optional)</span>
+      <textarea name="explanation" rows="3">{{ previous.explanation }}</textarea>
+    </label>
+    <label>
+      <span>Image URL (optional)</span>
+      <input type="url" name="image" value="{{ previous.image }}" placeholder="https://example.com/question.jpg">
+    </label>
+    <button type="submit" class="button primary">Submit question</button>
+  </form>
+</section>
+{% endblock %}

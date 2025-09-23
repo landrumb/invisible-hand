@@ -191,6 +191,18 @@ button.danger:hover {
   color: #001217;
 }
 
+.button.warning,
+button.warning {
+  border-color: #ff9f1c;
+  color: #ffb347;
+}
+
+.button.warning:hover,
+button.warning:hover {
+  background: rgba(255, 159, 28, 0.2);
+  color: #fff1d0;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1369,6 +1381,23 @@ button.danger:hover {
   color: var(--text);
 }
 
+.form-errors {
+  border: 1px solid rgba(255, 79, 100, 0.8);
+  background: rgba(80, 20, 28, 0.45);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.form-errors ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.form-errors li {
+  margin-bottom: 0.25rem;
+}
+
 .game-result {
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
@@ -1425,6 +1454,40 @@ button.danger:hover {
   background: rgba(0, 0, 0, 0.35);
 }
 
+.trivia-submit .choices-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.trivia-submit .choices-label {
+  font-weight: 600;
+}
+
+.trivia-submit .choice-input {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.trivia-submit .choice-input input[type="text"] {
+  flex: 1;
+}
+
+.trivia-submit .correct-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.trivia-submit .choices-help {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .trivia legend {
   font-weight: 600;
   margin-bottom: 1rem;
@@ -1450,6 +1513,34 @@ button.danger:hover {
   height: auto;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.trivia-feedback {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.trivia-feedback p {
+  margin: 0 0 0.75rem;
+  font-weight: 500;
+}
+
+.trivia-feedback .feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.trivia-feedback form {
+  margin: 0;
+}
+
+.trivia-footer {
+  margin-top: 1.5rem;
+  text-align: center;
 }
 
 .newcomb-grid {

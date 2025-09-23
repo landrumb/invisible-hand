@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import time
 from dataclasses import dataclass, field
@@ -53,6 +54,8 @@ class TriviaQuestion:
     hash_value: str
     image: Optional[str] = None
     explanation: Optional[str] = None
+    submitted_by: Optional[str] = None
+    source: str = "primary"
 
 
 @dataclass
@@ -77,17 +80,22 @@ class TriviaSet:
 class GamesManager:
     """Loads and exposes lightweight games defined by configuration files."""
 
-    def __init__(self, app, games_path: Path, trivia_path: Path):
+    def __init__(self, app, games_path: Path, trivia_path: Path, submitted_trivia_path: Path):
         self.app = app
         self.games_path = games_path
         self.trivia_path = trivia_path
+        self.submitted_trivia_path = submitted_trivia_path
         self._games: Dict[str, GameDefinition] = {}
         self._trivia_sets: Dict[str, TriviaSet] = {}
+        self._base_trivia_sets: Dict[str, TriviaSet] = {}
+        self._submitted_trivia_sets: Dict[str, TriviaSet] = {}
         self._serializer = URLSafeSerializer(app.config.get("SECRET_KEY", "dev"), salt="games")
         self._games_mtime: Optional[float] = None
         self._trivia_mtime: Optional[float] = None
+        self._submitted_trivia_mtime: Optional[float] = None
         self._failed_games_mtime: Optional[float] = None
         self._failed_trivia_mtime: Optional[float] = None
+        self._failed_submitted_trivia_mtime: Optional[float] = None
         self.reload(force=True)
 
     # ------------------------------------------------------------------
@@ -96,13 +104,18 @@ class GamesManager:
         if force:
             self._games_mtime = None
             self._trivia_mtime = None
+            self._submitted_trivia_mtime = None
             self._failed_games_mtime = None
             self._failed_trivia_mtime = None
+            self._failed_submitted_trivia_mtime = None
+            self._base_trivia_sets = {}
+            self._submitted_trivia_sets = {}
         self._ensure_current(force=force)
 
     def _ensure_current(self, *, force: bool = False) -> None:
         self._maybe_reload_games(force=force)
         self._maybe_reload_trivia(force=force)
+        self._maybe_reload_submitted_trivia(force=force)
 
     def _maybe_reload_games(self, *, force: bool = False) -> None:
         current_mtime = self._get_mtime(self.games_path)
@@ -144,9 +157,41 @@ class GamesManager:
             self._log_warning("Error loading trivia configuration; keeping previous sets.", error)
             return
 
-        self._trivia_sets = self._parse_trivia_sets(data)
+        base_sets = self._parse_trivia_sets(data, source="primary")
+        self._base_trivia_sets = base_sets
+        self._rebuild_trivia_sets()
         self._trivia_mtime = current_mtime
         self._failed_trivia_mtime = None
+
+    def _maybe_reload_submitted_trivia(self, *, force: bool = False) -> None:
+        current_mtime = self._get_mtime(self.submitted_trivia_path)
+        if not force:
+            if current_mtime == self._submitted_trivia_mtime:
+                return
+            if current_mtime is not None and current_mtime == self._failed_submitted_trivia_mtime:
+                return
+        try:
+            data = _load_toml(self.submitted_trivia_path)
+        except TOMLDecodeError as error:  # pragma: no cover - depends on toml parser
+            self._failed_submitted_trivia_mtime = current_mtime
+            self._log_warning(
+                "Failed to parse submitted trivia; keeping previous submitted questions.",
+                error,
+            )
+            return
+        except Exception as error:  # pragma: no cover - defensive
+            self._failed_submitted_trivia_mtime = current_mtime
+            self._log_warning(
+                "Error loading submitted trivia; keeping previous submitted questions.",
+                error,
+            )
+            return
+
+        submitted_sets = self._parse_trivia_sets(data, source="submitted")
+        self._submitted_trivia_sets = submitted_sets
+        self._rebuild_trivia_sets()
+        self._submitted_trivia_mtime = current_mtime
+        self._failed_submitted_trivia_mtime = None
 
     def _parse_games(self, data: Dict[str, Any]) -> Dict[str, GameDefinition]:
         if not isinstance(data, dict):
@@ -183,7 +228,7 @@ class GamesManager:
                 )
         return games
 
-    def _parse_trivia_sets(self, data: Dict[str, Any]) -> Dict[str, TriviaSet]:
+    def _parse_trivia_sets(self, data: Dict[str, Any], *, source: str) -> Dict[str, TriviaSet]:
         if not isinstance(data, dict):
             return {}
         sets: Dict[str, TriviaSet] = {}
@@ -217,6 +262,10 @@ class GamesManager:
                 explanation_value = (
                     str(explanation).strip() if isinstance(explanation, str) and explanation.strip() else None
                 )
+                submitted_by = question_data.get("submitted_by")
+                submitted_by_value = (
+                    str(submitted_by).strip() if isinstance(submitted_by, str) and submitted_by.strip() else None
+                )
                 if prompt and clean_choices:
                     hash_seed_parts = [
                         key,
@@ -226,6 +275,7 @@ class GamesManager:
                         str(answer),
                         image_value or "",
                         explanation_value or "",
+                        submitted_by_value or "",
                     ]
                     hash_seed = "::".join(hash_seed_parts).encode("utf-8")
                     question_hash = hashlib.sha256(hash_seed).hexdigest()
@@ -238,6 +288,8 @@ class GamesManager:
                             hash_value=question_hash,
                             image=image_value,
                             explanation=explanation_value,
+                            submitted_by=submitted_by_value,
+                            source=source,
                         )
                     )
             if questions:
@@ -249,6 +301,163 @@ class GamesManager:
                     questions=questions,
                 )
         return sets
+
+    def _rebuild_trivia_sets(self) -> None:
+        merged: Dict[str, TriviaSet] = {}
+        for key, base_set in self._base_trivia_sets.items():
+            merged[key] = TriviaSet(
+                key=base_set.key,
+                title=base_set.title,
+                description=base_set.description,
+                reward=base_set.reward,
+                questions=list(base_set.questions),
+            )
+        for key, submitted_set in self._submitted_trivia_sets.items():
+            existing = merged.get(key)
+            if existing is None:
+                merged[key] = TriviaSet(
+                    key=submitted_set.key,
+                    title=submitted_set.title,
+                    description=submitted_set.description,
+                    reward=submitted_set.reward,
+                    questions=list(submitted_set.questions),
+                )
+            else:
+                existing.questions.extend(submitted_set.questions)
+        self._trivia_sets = merged
+
+    # ------------------------------------------------------------------
+    # Submission helpers
+    def append_submitted_question(self, set_key: str, question_data: Dict[str, Any]) -> TriviaQuestion:
+        """Persist a submitted trivia question and return the parsed object."""
+
+        clean_key = str(set_key).strip()
+        if not clean_key:
+            raise ValueError("set_key is required")
+
+        path = self.submitted_trivia_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            data = _load_toml(path)
+        except Exception:
+            data = {}
+
+        sets_list: List[Dict[str, Any]]
+        sets = data.get("sets")
+        if isinstance(sets, list):
+            sets_list = [entry for entry in sets if isinstance(entry, dict)]
+        else:
+            sets_list = []
+
+        base_set = self._base_trivia_sets.get(clean_key) or self._submitted_trivia_sets.get(clean_key)
+        set_entry: Optional[Dict[str, Any]] = None
+        for entry in sets_list:
+            if str(entry.get("key", "")).strip() == clean_key:
+                set_entry = entry
+                break
+        if set_entry is None:
+            set_entry = {"key": clean_key}
+            if base_set is not None:
+                set_entry.setdefault("title", base_set.title)
+                if base_set.description:
+                    set_entry.setdefault("description", base_set.description)
+                set_entry.setdefault("reward", base_set.reward)
+            sets_list.append(set_entry)
+
+        questions = set_entry.setdefault("questions", [])
+        if not isinstance(questions, list):
+            questions = []
+            set_entry["questions"] = questions
+
+        prompt_text = str(question_data.get("prompt", "")).strip()
+        raw_choices = question_data.get("choices", [])
+        if not isinstance(raw_choices, Iterable):
+            raw_choices = []
+        clean_choices = [str(choice).strip() for choice in raw_choices if str(choice).strip()]
+        if not prompt_text or len(clean_choices) < 2:
+            raise ValueError("Question prompt and at least two choices are required")
+
+        try:
+            answer_index = int(question_data.get("answer", 0))
+        except (TypeError, ValueError):
+            answer_index = 0
+        answer_index = max(0, min(answer_index, len(clean_choices) - 1))
+
+        submitted_by_value = question_data.get("submitted_by")
+        if isinstance(submitted_by_value, str):
+            submitted_by_value = submitted_by_value.strip() or None
+        else:
+            submitted_by_value = None
+
+        new_question = {
+            "id": str(question_data.get("id", "")).strip() or f"{clean_key}-submitted-{len(questions)}",
+            "prompt": prompt_text,
+            "choices": clean_choices,
+            "answer": answer_index,
+            "submitted_by": submitted_by_value,
+        }
+        if question_data.get("image"):
+            new_question["image"] = str(question_data["image"])
+        if question_data.get("explanation"):
+            new_question["explanation"] = str(question_data["explanation"])
+
+        questions.append(new_question)
+
+        # Write TOML content back to disk
+        lines: List[str] = []
+        for entry in sets_list:
+            lines.append("[[sets]]")
+            for field_name in ("key", "title", "description", "reward"):
+                value = entry.get(field_name)
+                if value is None:
+                    continue
+                lines.append(f"{field_name} = {self._format_toml_value(value)}")
+            for question in entry.get("questions", []) or []:
+                if not isinstance(question, dict):
+                    continue
+                lines.append("")
+                lines.append("  [[sets.questions]]")
+                for field_name in (
+                    "id",
+                    "prompt",
+                    "choices",
+                    "answer",
+                    "image",
+                    "explanation",
+                    "submitted_by",
+                ):
+                    value = question.get(field_name)
+                    if value in (None, ""):
+                        continue
+                    lines.append(f"  {field_name} = {self._format_toml_value(value)}")
+            lines.append("")
+
+        content = "\n".join(lines).strip() + "\n"
+        path.write_text(content, encoding="utf-8")
+
+        # Force reload to pick up the new data
+        self.reload(force=True)
+        trivia_set = self.get_trivia_set(clean_key)
+        if trivia_set is None:
+            raise RuntimeError("Failed to reload trivia set after submission")
+        for question in trivia_set.questions:
+            if question.id == new_question["id"]:
+                return question
+        raise RuntimeError("Submitted question not found after reload")
+
+    @staticmethod
+    def _format_toml_value(value: Any) -> str:
+        if isinstance(value, str):
+            escaped = value.replace("\\", "\\\\").replace("\"", "\\\"")
+            return f'"{escaped}"'
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return f"{value}"
+        if isinstance(value, list):
+            return json.dumps(value, ensure_ascii=False)
+        return json.dumps(value, ensure_ascii=False)
 
     @staticmethod
     def _coerce_enabled(value: Any) -> bool:
@@ -321,6 +530,7 @@ def get_games_manager() -> GamesManager:
         app,
         games_path=config_dir / "games.toml",
         trivia_path=config_dir / "trivia.toml",
+        submitted_trivia_path=config_dir / "submitted_trivia.toml",
     )
     app.extensions["games_manager"] = manager
     return manager
@@ -334,6 +544,7 @@ def init_games(app) -> None:
         app,
         games_path=config_dir / "games.toml",
         trivia_path=config_dir / "trivia.toml",
+        submitted_trivia_path=config_dir / "submitted_trivia.toml",
     )
     app.extensions["games_manager"] = manager
 

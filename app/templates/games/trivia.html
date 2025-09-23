@@ -32,6 +32,31 @@
       <strong>{{ result.title }}</strong>
       <p>{{ result.message }}</p>
     </div>
+    {% if result.rate %}
+      <div class="trivia-feedback">
+        <p>How was this question?</p>
+        <div class="feedback-actions">
+          <form method="post" action="{{ url_for('main.rate_trivia_question', game_key=game.key) }}">
+            <input type="hidden" name="token" value="{{ result.rate.token }}">
+            <input type="hidden" name="action" value="good">
+            <button type="submit" class="button secondary">Good question</button>
+          </form>
+          <form method="post" action="{{ url_for('main.rate_trivia_question', game_key=game.key) }}">
+            <input type="hidden" name="token" value="{{ result.rate.token }}">
+            <input type="hidden" name="action" value="bad">
+            <button type="submit" class="button secondary">Bad question</button>
+          </form>
+          <form method="post" action="{{ url_for('main.rate_trivia_question', game_key=game.key) }}">
+            <input type="hidden" name="token" value="{{ result.rate.token }}">
+            <input type="hidden" name="action" value="report">
+            <button type="submit" class="button warning">Report question</button>
+          </form>
+        </div>
+      </div>
+    {% endif %}
   {% endif %}
+  <div class="trivia-footer">
+    <a class="button secondary" href="{{ submit_question_url }}">Submit a trivia question</a>
+  </div>
 </section>
 {% endblock %}

@@ -1091,6 +1091,14 @@ def _handle_trivia_game(game, manager):
                         answer_index = int(submitted_answer) if submitted_answer is not None else -1
                     except (TypeError, ValueError):
                         answer_index = -1
+                    rate_payload = {
+                        "game": game.key,
+                        "question": selected_question.id,
+                        "hash": selected_question.hash_value,
+                        "set": trivia_set.key,
+                        "order": expected_order,
+                    }
+                    rate_token = manager.create_token(rate_payload)
                     if answer_index == selected_question.answer:
                         payout = round(trivia_set.reward * multiplier, 2)
                         if payout > 0:
@@ -1099,6 +1107,10 @@ def _handle_trivia_game(game, manager):
                             "category": "success" if payout > 0 else "info",
                             "title": "Correct!",
                             "message": f"You earned {payout:.2f} credits.",
+                            "rate": {
+                                "token": rate_token,
+                                "submitted_by": selected_question.submitted_by,
+                            },
                         }
                     else:
                         correct_choice = selected_question.choices[selected_question.answer]
@@ -1106,6 +1118,10 @@ def _handle_trivia_game(game, manager):
                             "category": "error",
                             "title": "Incorrect",
                             "message": f"The correct answer was '{correct_choice}'.",
+                            "rate": {
+                                "token": rate_token,
+                                "submitted_by": selected_question.submitted_by,
+                            },
                         }
                     seen_values.add(expected_order)
                     AppSetting.set(seen_key, json.dumps(sorted(seen_values)))
@@ -1141,7 +1157,196 @@ def _handle_trivia_game(game, manager):
         token=token,
         set_description=trivia_set.description,
         result=result,
+        submit_question_url=url_for(
+            "main.submit_trivia_question", game_key=game.key, set_key=trivia_set.key
+        ),
     )
+
+
+@bp.route("/games/<game_key>/submit-question", methods=["GET", "POST"])
+@login_required
+def submit_trivia_question(game_key: str):
+    manager = get_games_manager()
+    game = manager.get_game(game_key)
+    if game is None or game.type != "trivia":
+        abort(404)
+
+    set_key = str(request.args.get("set_key") or request.args.get("set") or "").strip()
+    if request.method == "POST":
+        set_key = str(request.form.get("set_key", set_key)).strip() or set_key
+    if not set_key:
+        set_key = str(game.params.get("question_set", "")).strip()
+    trivia_set = manager.get_trivia_set(set_key)
+    if trivia_set is None:
+        abort(404)
+
+    errors: List[str] = []
+    previous_values = {
+        "prompt": "",
+        "explanation": "",
+        "image": "",
+        "choices": ["", "", "", ""],
+        "correct_choice": 0,
+    }
+    if request.method == "POST":
+        prompt = (request.form.get("prompt", "") or "").strip()
+        explanation = (request.form.get("explanation", "") or "").strip()
+        image = (request.form.get("image", "") or "").strip()
+        raw_choices = [choice.strip() for choice in request.form.getlist("choices")]
+        choices = [choice for choice in raw_choices if choice]
+        if not prompt:
+            errors.append("Please enter a question prompt.")
+        if len(choices) < 2:
+            errors.append("Add at least two answer options.")
+        try:
+            answer_index = int(request.form.get("correct_choice", "0"))
+        except (TypeError, ValueError):
+            answer_index = 0
+        answer_index = max(0, min(answer_index, len(choices) - 1)) if choices else 0
+
+        previous_values.update(
+            {
+                "prompt": prompt,
+                "explanation": explanation,
+                "image": image,
+                "choices": raw_choices or ["", "", "", ""],
+                "correct_choice": answer_index,
+            }
+        )
+        if len(previous_values["choices"]) < 4:
+            previous_values["choices"].extend([""] * (4 - len(previous_values["choices"])) )
+
+        if not errors:
+            submitted_by = (getattr(current_user, "email", "") or "").strip()
+            if not submitted_by:
+                submitted_by = f"user-{current_user.id}"
+            try:
+                manager.append_submitted_question(
+                    set_key,
+                    {
+                        "prompt": prompt,
+                        "choices": choices,
+                        "answer": answer_index,
+                        "explanation": explanation or None,
+                        "image": image or None,
+                        "submitted_by": submitted_by,
+                    },
+                )
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                flash("Thanks! Your question was submitted for review.", "success")
+                return redirect(url_for("main.play_game", game_key=game.key))
+
+    return render_template(
+        "games/trivia_submit.html",
+        game=game,
+        trivia_set=trivia_set,
+        errors=errors,
+        set_key=set_key,
+        previous=previous_values,
+    )
+
+
+@bp.route("/games/<game_key>/rate", methods=["POST"])
+@login_required
+def rate_trivia_question(game_key: str):
+    manager = get_games_manager()
+    game = manager.get_game(game_key)
+    if game is None or game.type != "trivia":
+        abort(404)
+
+    token_value = request.form.get("token", "")
+    action = (request.form.get("action", "") or "").strip().lower()
+    try:
+        payload = manager.load_token(token_value)
+    except BadSignature:
+        flash("We couldn't verify that rating request.", "error")
+        return redirect(url_for("main.play_game", game_key=game.key))
+
+    if payload.get("game") != game.key:
+        flash("That rating doesn't match this game.", "error")
+        return redirect(url_for("main.play_game", game_key=game.key))
+
+    if action not in {"good", "bad", "report"}:
+        flash("Select a valid rating option.", "error")
+        return redirect(url_for("main.play_game", game_key=game.key))
+
+    question_hash = payload.get("hash")
+    question_id = payload.get("question")
+    set_key = payload.get("set")
+    try:
+        expected_order = int(payload.get("order"))
+    except (TypeError, ValueError):
+        expected_order = None
+
+    trivia_set = manager.get_trivia_set(set_key) if isinstance(set_key, str) else None
+    question: Optional[TriviaQuestion] = None
+    if trivia_set is not None:
+        for candidate in trivia_set.questions:
+            if candidate.id == question_id and candidate.hash_value == question_hash:
+                question = candidate
+                break
+    if question is None:
+        flash("We couldn't find that question anymore.", "error")
+        return redirect(url_for("main.play_game", game_key=game.key))
+
+    # Ensure the player has already answered this question
+    if expected_order is not None:
+        seen_key = f"game:{game.key}:seen:{current_user.id}"
+        seen_raw = AppSetting.get(seen_key, "") or ""
+        seen_values: Set[int] = set()
+        if seen_raw:
+            try:
+                data = json.loads(seen_raw)
+                if isinstance(data, list):
+                    for value in data:
+                        try:
+                            seen_values.add(int(value))
+                        except (TypeError, ValueError):
+                            continue
+            except Exception:
+                for value in seen_raw.split(","):
+                    try:
+                        seen_values.add(int(value))
+                    except (TypeError, ValueError):
+                        continue
+        if expected_order not in seen_values:
+            flash("Answer the question before rating it.", "error")
+            return redirect(url_for("main.play_game", game_key=game.key))
+
+    rating_key = f"game:{game.key}:rating:{current_user.id}:{question_hash}"
+    if AppSetting.get(rating_key):
+        flash("You've already rated that question.", "info")
+        return redirect(url_for("main.play_game", game_key=game.key))
+
+    counts_key = f"game:{game.key}:rating-counts:{question_hash}"
+    counts_raw = AppSetting.get(counts_key, "{}") or "{}"
+    try:
+        counts = json.loads(counts_raw)
+    except Exception:
+        counts = {}
+    if not isinstance(counts, dict):
+        counts = {}
+    counts[action] = int(counts.get(action, 0)) + 1
+    AppSetting.set(counts_key, json.dumps(counts))
+    AppSetting.set(rating_key, action)
+
+    if action == "good" and question.submitted_by:
+        reward_amount = float(game.params.get("rating_reward", 0.0) or 0.0)
+        if reward_amount > 0:
+            submitter = User.query.filter_by(email=question.submitted_by).first()
+            if submitter is not None:
+                description = f"{game.name} question upvote"
+                record_transaction(
+                    submitter,
+                    reward_amount,
+                    description,
+                    counterparty=current_user.email if getattr(current_user, "email", None) else None,
+                )
+
+    flash("Thanks for the feedback!", "success")
+    return redirect(url_for("main.play_game", game_key=game.key))
 
 
 def _handle_newcomb_game(game, manager):

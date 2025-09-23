@@ -27,6 +27,7 @@ description = "Everyone sees the same questions, but the order is shuffled per p
 enabled = true
 question_set = "general"
 reward = 6.0
+rating_reward = 1.5
 
 [[games]]
 key = "animal-spotter"
@@ -36,6 +37,7 @@ description = "Identify the animal shown in each illustration."
 enabled = true
 question_set = "animals"
 reward = 6.0
+rating_reward = 1.5
 
 [[games]]
 key = "omega-choice"

@@ -25,20 +25,29 @@ def _write_with_new_mtime(path: Path, content: str) -> None:
     os.utime(path, (new_time, new_time))
 
 
-def _build_manager(tmp_path: Path, games_content: str, trivia_content: str) -> GamesManager:
+def _build_manager(
+    tmp_path: Path, games_content: str, trivia_content: str, submitted_content: str = ""
+) -> GamesManager:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     games_path = config_dir / "games.toml"
     trivia_path = config_dir / "trivia.toml"
+    submitted_path = config_dir / "submitted_trivia.toml"
     _write_with_new_mtime(games_path, games_content)
     _write_with_new_mtime(trivia_path, trivia_content)
+    _write_with_new_mtime(submitted_path, submitted_content)
     app = types.SimpleNamespace(
         config={"SECRET_KEY": "test"},
         root_path=str(tmp_path),
         extensions={},
         logger=DummyLogger(),
     )
-    return GamesManager(app, games_path=games_path, trivia_path=trivia_path)
+    return GamesManager(
+        app,
+        games_path=games_path,
+        trivia_path=trivia_path,
+        submitted_trivia_path=submitted_path,
+    )
 
 
 def test_games_manager_hides_disabled_entries(tmp_path):
@@ -109,6 +118,7 @@ reward = 3.0
     manager = _build_manager(tmp_path, initial_games, initial_trivia)
     games_path = Path(manager.games_path)
     trivia_path = Path(manager.trivia_path)
+    submitted_path = Path(manager.submitted_trivia_path)
 
     assert [game.name for game in manager.list_games()] == ["Alpha"]
     assert manager.get_trivia_set("quiz").reward == 3.0
@@ -169,6 +179,23 @@ reward = 4.5
     _write_with_new_mtime(trivia_path, updated_trivia)
     assert manager.get_trivia_set("quiz").reward == 4.5
 
+    submitted_questions = """
+[[sets]]
+key = "quiz"
+title = "Quiz"
+reward = 1.0
+
+  [[sets.questions]]
+  id = "s1"
+  prompt = "Submitted?"
+  choices = ["a", "b", "c"]
+  answer = 1
+  submitted_by = "user@example.com"
+"""
+    _write_with_new_mtime(submitted_path, submitted_questions)
+    questions = manager.get_trivia_set("quiz").questions
+    assert any(question.id == "s1" and question.submitted_by == "user@example.com" for question in questions)
+
     invalid_trivia = """
 [[sets]
 key = "quiz"
@@ -190,3 +217,15 @@ reward = 6.0
 """
     _write_with_new_mtime(trivia_path, repaired_trivia)
     assert manager.get_trivia_set("quiz").reward == 6.0
+
+    manager.append_submitted_question(
+        "quiz",
+        {
+            "prompt": "Another?",
+            "choices": ["one", "two"],
+            "answer": 1,
+            "submitted_by": "author@example.com",
+        },
+    )
+    merged_questions = manager.get_trivia_set("quiz").questions
+    assert any(question.prompt == "Another?" for question in merged_questions)
