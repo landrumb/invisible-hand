@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app.models import TelestrationEntry, TelestrationGame
-
+from app.telestrations import extract_seed_prompts
 
 def test_game_active_state_transitions():
     game = TelestrationGame()
@@ -45,3 +45,17 @@ def test_entry_image_availability():
     entry.entry_type = "description"
     entry.image_filename = "test.png"
     assert not entry.image_available()
+
+
+def test_extract_telestration_seed_prompts_filters_and_deduplicates():
+    params = {
+        "seed_prompts": ["  Dragon  ", "", "Spaceship", "dragon", 42, None, "Mystery"],
+    }
+    prompts = extract_seed_prompts(params)
+    assert prompts == ["Dragon", "Spaceship", "Mystery"]
+
+
+def test_extract_telestration_seed_prompts_empty_inputs():
+    assert extract_seed_prompts(None) == []
+    assert extract_seed_prompts({"seed_prompts": None}) == []
+    assert extract_seed_prompts({"seed_prompts": ""}) == []

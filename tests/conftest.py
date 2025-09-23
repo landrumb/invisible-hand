@@ -52,6 +52,41 @@ if "itsdangerous" not in sys.modules:
     itsdangerous_stub.URLSafeSerializer = DummySerializer
     sys.modules["itsdangerous"] = itsdangerous_stub
 
+# Stub qrcode module
+if "qrcode" not in sys.modules:
+    qrcode_stub = types.ModuleType("qrcode")
+
+    class DummyQR:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def add_data(self, *args, **kwargs):
+            pass
+
+        def make(self, *args, **kwargs):
+            pass
+
+        def make_image(self, *args, **kwargs):
+            class DummyImage:
+                def save(self, *args, **kwargs):
+                    pass
+
+            return DummyImage()
+
+    class DummyConstants:
+        ERROR_CORRECT_L = 1
+
+    def dummy_make(data, **kwargs):
+        qr = DummyQR()
+        qr.add_data(data)
+        qr.make(**kwargs)
+        return qr.make_image()
+
+    qrcode_stub.QRCode = DummyQR
+    qrcode_stub.constants = DummyConstants()
+    qrcode_stub.make = dummy_make
+    sys.modules["qrcode"] = qrcode_stub
+
 # Stub sqlalchemy modules
 if "sqlalchemy" not in sys.modules:
     sqlalchemy_stub = types.ModuleType("sqlalchemy")

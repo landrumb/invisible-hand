@@ -87,3 +87,4 @@ description = "Start a drawing chain or add the next clue with alternating sketc
 enabled = true
 max_turns = 8
 upvote_reward = 2.0
+seed_prompts = ["dragon", "spaceship", "mysterious treasure"]

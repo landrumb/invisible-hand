@@ -8,7 +8,7 @@ import secrets
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 import qrcode
 from flask import (
@@ -66,6 +66,7 @@ from itsdangerous import BadSignature
 
 from .casino import get_casino_manager
 from .games import TriviaQuestion, get_games_manager
+from .telestrations import extract_seed_prompts
 
 
 bp = Blueprint("main", __name__)
@@ -1466,6 +1467,7 @@ def _handle_among_us_game(game, manager):
 
 def _handle_telestrations_game(game, manager):
     configured_turns = _get_telestrations_max_turns(game.params)
+    _ensure_seeded_telestrations_games(game.params)
     active_game = _find_active_telestration_game(current_user.id)
 
     if request.method == "POST":
@@ -1586,6 +1588,70 @@ def _get_telestrations_upvote_reward(params: Optional[dict] = None) -> float:
     else:
         value = default_value
     return max(0.0, value)
+
+
+def _get_telestrations_seed_user() -> Tuple[Optional[User], bool]:
+    identifier = "telestrations-seed"
+    user = User.query.filter_by(google_id=identifier).first()
+    if user is not None:
+        return user, False
+    email = current_app.config.get("TELESTRATIONS_SEED_EMAIL", "telestrations-seed@system.local")
+    existing = User.query.filter_by(email=email).first()
+    if existing is not None:
+        if existing.google_id != identifier:
+            existing.google_id = identifier
+            db.session.add(existing)
+            db.session.flush()
+            return existing, True
+        return existing, False
+    name = current_app.config.get("TELESTRATIONS_SEED_NAME", "Arcade Muse")
+    user = User(
+        google_id=identifier,
+        email=email,
+        name=name,
+        role=Role.PLAYER,
+    )
+    db.session.add(user)
+    db.session.flush()
+    return user, True
+
+
+def _ensure_seeded_telestrations_games(params: Optional[dict] = None) -> None:
+    prompts = extract_seed_prompts(params)
+    if not prompts:
+        return
+    seed_user, user_created = _get_telestrations_seed_user()
+    if seed_user is None:
+        return
+    configured_turns = _get_telestrations_max_turns(params)
+    changed = user_created
+    for prompt in prompts:
+        normalized = prompt.casefold()
+        existing = (
+            _telestrations_active_query()
+            .filter(func.lower(TelestrationGame.prompt) == normalized)
+            .first()
+        )
+        if existing is not None:
+            continue
+        new_game = TelestrationGame(
+            creator=seed_user,
+            prompt=prompt,
+            max_turns=configured_turns,
+            turns_taken=1,
+        )
+        first_entry = TelestrationEntry(
+            game=new_game,
+            contributor=seed_user,
+            turn_index=1,
+            entry_type="description",
+            text_content=prompt,
+        )
+        db.session.add(new_game)
+        db.session.add(first_entry)
+        changed = True
+    if changed:
+        db.session.commit()
 
 
 def _telestrations_storage_dir() -> Path:
@@ -1736,6 +1802,10 @@ def _submit_among_us_task(game, manager):
 @bp.route("/games/telestrations/status")
 @login_required
 def telestrations_status():
+    manager = get_games_manager()
+    game = manager.get_game("telestrations") if manager else None
+    params = game.params if game else None
+    _ensure_seeded_telestrations_games(params)
     count = _telestrations_active_query().count()
     return jsonify({"active_games": count})
 
