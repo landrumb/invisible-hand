@@ -18,10 +18,15 @@
         {% if current_user.is_authenticated %}
           <a href="{{ url_for('main.dashboard') }}">Dashboard</a>
           <a href="{{ url_for('main.inbox') }}">Inbox</a>
-          <a href="{{ url_for('main.single_player') }}">Solo Game</a>
-          <a href="{{ url_for('main.prisoners_dilemma') }}">Prisoner's Dilemma</a>
+          <div class="nav-dropdown">
+            <span class="nav-dropdown-toggle">Games ▾</span>
+            <div class="nav-dropdown-menu">
+              <a href="{{ url_for('main.single_player') }}">Solo Game</a>
+              <a href="{{ url_for('main.prisoners_dilemma') }}">Prisoner's Dilemma</a>
+              <a href="{{ url_for('main.casino') }}">Casino</a>
+            </div>
+          </div>
           <a href="{{ url_for('main.securities_hub') }}">Securities</a>
-          <a href="{{ url_for('main.casino') }}">Casino</a>
           {% if current_user.is_merchant %}
             <a href="{{ url_for('main.merchant_portal') }}">Merchant</a>
           {% endif %}
