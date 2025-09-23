@@ -25,7 +25,7 @@ def login():
         return redirect(url_for("main.dashboard"))
     if not require_oauth():
         return render_template("login.html", allow_guest=True)
-    redirect_uri = url_for("auth.authorize", _external=True)
+    redirect_uri = url_for("auth.authorize", _external=True, _scheme="https")
     return oauth.google.authorize_redirect(redirect_uri)
 
 

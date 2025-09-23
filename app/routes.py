@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
 import qrcode
+from PIL import Image
+import pillow_heif
 from flask import (
     Blueprint,
     abort,
@@ -68,6 +70,8 @@ from .casino import get_casino_manager
 from .games import TriviaQuestion, get_games_manager
 from .telestrations import extract_seed_prompts
 
+# Register HEIF opener for HEIC image support
+pillow_heif.register_heif_opener()
 
 bp = Blueprint("main", __name__)
 
@@ -1664,7 +1668,39 @@ def _telestrations_storage_dir() -> Path:
     return base
 
 
+def _convert_heic_to_jpeg(data: bytes) -> Tuple[bytes, str]:
+    """Convert HEIC image data to JPEG format.
+    
+    Returns:
+        Tuple of (converted_jpeg_data, jpeg_mime_type)
+    """
+    try:
+        # Open the HEIC image from bytes
+        image = Image.open(io.BytesIO(data))
+        
+        # Convert to RGB if necessary (HEIC can have different color modes)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Save as JPEG to a BytesIO buffer
+        output_buffer = io.BytesIO()
+        image.save(output_buffer, format='JPEG', quality=85, optimize=True)
+        output_buffer.seek(0)
+        
+        return output_buffer.getvalue(), "image/jpeg"
+    except Exception as e:
+        # If conversion fails, raise an exception to be handled by the caller
+        raise ValueError(f"Failed to convert HEIC image to JPEG: {str(e)}")
+
+
 def _store_telestration_image(data: bytes, mime_type: str, game_id: int, turn_index: int) -> str:
+    # Convert HEIC to JPEG if needed
+    if mime_type.lower() in ("image/heic", "image/heif"):
+        try:
+            data, mime_type = _convert_heic_to_jpeg(data)
+        except ValueError as e:
+            raise ValueError(f"Could not process HEIC image: {str(e)}")
+    
     extension = mimetypes.guess_extension(mime_type) or ".bin"
     if extension == ".jpe":
         extension = ".jpg"
@@ -1858,14 +1894,25 @@ def telestrations_play(game_id: int):
             if not mime_type.lower().startswith("image/"):
                 flash("Only image uploads are supported for telestrations rounds.", "warning")
                 return redirect(url_for("main.telestrations_play", game_id=game.id))
-            filename = _store_telestration_image(data, mime_type, game.id, next_turn)
+            
+            try:
+                filename = _store_telestration_image(data, mime_type, game.id, next_turn)
+                # If HEIC was converted to JPEG, update the mime_type for the database
+                if mime_type.lower() in ("image/heic", "image/heif"):
+                    stored_mime_type = "image/jpeg"
+                else:
+                    stored_mime_type = mime_type
+            except ValueError as e:
+                flash(f"Could not process the uploaded image: {str(e)}", "warning")
+                return redirect(url_for("main.telestrations_play", game_id=game.id))
+            
             new_entry = TelestrationEntry(
                 game=game,
                 contributor=current_user,
                 turn_index=next_turn,
                 entry_type="image",
                 image_filename=filename,
-                image_mime_type=mime_type,
+                image_mime_type=stored_mime_type,
             )
 
         if new_entry is None:

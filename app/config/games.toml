@@ -47,7 +47,7 @@ description = "A suspicious take on Newcomb's problem. Two-boxing never works."
 enabled = true
 payout_small = 25.0
 payout_large = 180.0
-payout_both = 0.0
+payout_both = 25.0
 
 [[games]]
 key = "task-swipe-card"
@@ -85,6 +85,6 @@ name = "Telestrations Relay"
 type = "telestrations"
 description = "Start a drawing chain or add the next clue with alternating sketches and captions."
 enabled = true
-max_turns = 8
+max_turns = 2
 upvote_reward = 2.0
 seed_prompts = ["dragon", "spaceship", "mysterious treasure"]

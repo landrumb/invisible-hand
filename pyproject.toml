@@ -15,8 +15,10 @@ dependencies = [
   "requests>=2.31.0",
   "qrcode==7.4.2",
   "Pillow==10.0.0",
+  "pillow-heif>=0.10.0",
   "Werkzeug<3",
   "python-dotenv>=1.1.1",
+  "alembic>=1.16.5",
 ]
 
 [build-system]

@@ -10,4 +10,38 @@
     <a class="button" href="{{ url_for('main.dashboard') }}">Go to Dashboard</a>
   {% endif %}
 </section>
+
+<!-- Debug Information -->
+<details style="margin: 2rem 0; padding: 1rem; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.375rem;">
+  <summary style="cursor: pointer; font-weight: bold; margin-bottom: 1rem;">🔍 URL Debug Information</summary>
+  <div style="font-family: monospace; font-size: 0.875rem; line-height: 1.5;">
+    <h4 style="margin-top: 0;">Current Request:</h4>
+    <ul style="margin: 0.5rem 0;">
+      <li><strong>URL:</strong> {{ request.url }}</li>
+      <li><strong>Base URL:</strong> {{ request.base_url }}</li>
+      <li><strong>Host URL:</strong> {{ request.host_url }}</li>
+      <li><strong>Path:</strong> {{ request.path }}</li>
+      <li><strong>Full Path:</strong> {{ request.full_path }}</li>
+    </ul>
+
+    <h4>Generated URLs (url_for):</h4>
+    <ul style="margin: 0.5rem 0;">
+      <li><strong>auth.login:</strong> {{ url_for('auth.login') }}</li>
+      <li><strong>main.dashboard:</strong> {{ url_for('main.dashboard') }}</li>
+      <li><strong>main.index:</strong> {{ url_for('main.index') }}</li>
+      <li><strong>main.games:</strong> {{ url_for('main.games_lobby') }}</li>
+      <li><strong>main.securities:</strong> {{ url_for('main.securities_hub') }}</li>
+      <li><strong>main.casino:</strong> {{ url_for('main.casino') }}</li>
+      <li><strong>main.merchant:</strong> {{ url_for('main.merchant_portal') }}</li>
+      <li><strong>main.admin:</strong> {{ url_for('main.admin_dashboard') }}</li>
+    </ul>
+
+    <h4>External URLs (url_for with _external=True):</h4>
+    <ul style="margin: 0.5rem 0;">
+      <li><strong>auth.login (external):</strong> {{ url_for('auth.login', _external=True) }}</li>
+      <li><strong>main.dashboard (external):</strong> {{ url_for('main.dashboard', _external=True) }}</li>
+      <li><strong>main.index (external):</strong> {{ url_for('main.index', _external=True) }}</li>
+    </ul>
+  </div>
+</details>
 {% endblock %}

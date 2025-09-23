@@ -8,17 +8,6 @@
     <p class="stat">Role: <strong>{{ current_user.role.value|capitalize }}</strong></p>
     <p class="stat">User ID: <strong>{{ current_user.id }}</strong></p>
     <p class="stat">Handle: <strong>{{ current_user.email.split('@')[0] }}</strong></p>
-    <div class="actions">
-      <a class="button" href="{{ url_for('main.single_player') }}">Play solo game</a>
-      <a class="button" href="{{ url_for('main.prisoners_dilemma') }}">Enter Prisoner's Dilemma</a>
-      <a class="button" href="{{ url_for('main.securities_hub') }}">Visit Securities Desk</a>
-      {% if current_user.is_merchant %}
-        <a class="button" href="{{ url_for('main.merchant_portal') }}">Open Merchant Portal</a>
-      {% endif %}
-      {% if current_user.is_admin %}
-        <a class="button" href="{{ url_for('main.admin_dashboard') }}">Admin Dashboard</a>
-      {% endif %}
-    </div>
     {% if qr_data_uri %}
       <div class="qr-wrapper">
         <img src="{{ qr_data_uri }}" alt="QR code to send or request credits from {{ current_user.name }}" />

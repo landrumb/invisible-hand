@@ -1,0 +1,12 @@
+[[sets]]
+key = "general"
+title = "General Trivia"
+description = "A sampler platter of approachable questions."
+reward = 6.0
+
+  [[sets.questions]]
+  id = "general-submitted-0"
+  prompt = "what kind of test question has an answer of 2?"
+  choices = ["A", "2", "C", "D"]
+  answer = 1
+  submitted_by = "btl46@cornell.edu"

@@ -74,6 +74,11 @@ def create_app(test_config=None):
     def inject_now():
         return {"now": datetime.utcnow()}
 
+    @app.context_processor
+    def inject_request():
+        from flask import request
+        return {"request": request}
+
     return app
 
 
