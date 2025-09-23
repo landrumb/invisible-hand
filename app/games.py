@@ -12,8 +12,10 @@ from flask import current_app, has_app_context
 
 try:  # Python 3.11+
     import tomllib  # type: ignore[attr-defined]
+    TOMLDecodeError = tomllib.TOMLDecodeError  # type: ignore[attr-defined]
 except ModuleNotFoundError:  # pragma: no cover - defensive fallback
     import tomli as tomllib  # type: ignore
+    TOMLDecodeError = tomllib.TOMLDecodeError  # type: ignore[attr-defined]
 
 from itsdangerous import BadSignature, URLSafeSerializer
 
@@ -38,6 +40,7 @@ class GameDefinition:
     name: str
     type: str
     description: str
+    enabled: bool = True
     params: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -79,31 +82,110 @@ class GamesManager:
         self._games: Dict[str, GameDefinition] = {}
         self._trivia_sets: Dict[str, TriviaSet] = {}
         self._serializer = URLSafeSerializer(app.config.get("SECRET_KEY", "dev"), salt="games")
-        self.reload()
+        self._games_mtime: Optional[float] = None
+        self._trivia_mtime: Optional[float] = None
+        self._failed_games_mtime: Optional[float] = None
+        self._failed_trivia_mtime: Optional[float] = None
+        self.reload(force=True)
 
     # ------------------------------------------------------------------
     # Configuration loading
-    def reload(self) -> None:
-        games_data = _load_toml(self.games_path)
-        trivia_data = _load_toml(self.trivia_path)
+    def reload(self, *, force: bool = False) -> None:
+        if force:
+            self._games_mtime = None
+            self._trivia_mtime = None
+            self._failed_games_mtime = None
+            self._failed_trivia_mtime = None
+        self._ensure_current(force=force)
 
+    def _ensure_current(self, *, force: bool = False) -> None:
+        self._maybe_reload_games(force=force)
+        self._maybe_reload_trivia(force=force)
+
+    def _maybe_reload_games(self, *, force: bool = False) -> None:
+        current_mtime = self._get_mtime(self.games_path)
+        if not force:
+            if current_mtime == self._games_mtime:
+                return
+            if current_mtime is not None and current_mtime == self._failed_games_mtime:
+                return
+        try:
+            data = _load_toml(self.games_path)
+        except TOMLDecodeError as error:  # pragma: no cover - depends on toml parser
+            self._failed_games_mtime = current_mtime
+            self._log_warning("Failed to parse games configuration; keeping previous games.", error)
+            return
+        except Exception as error:  # pragma: no cover - defensive
+            self._failed_games_mtime = current_mtime
+            self._log_warning("Error loading games configuration; keeping previous games.", error)
+            return
+
+        self._games = self._parse_games(data)
+        self._games_mtime = current_mtime
+        self._failed_games_mtime = None
+
+    def _maybe_reload_trivia(self, *, force: bool = False) -> None:
+        current_mtime = self._get_mtime(self.trivia_path)
+        if not force:
+            if current_mtime == self._trivia_mtime:
+                return
+            if current_mtime is not None and current_mtime == self._failed_trivia_mtime:
+                return
+        try:
+            data = _load_toml(self.trivia_path)
+        except TOMLDecodeError as error:  # pragma: no cover - depends on toml parser
+            self._failed_trivia_mtime = current_mtime
+            self._log_warning("Failed to parse trivia configuration; keeping previous sets.", error)
+            return
+        except Exception as error:  # pragma: no cover - defensive
+            self._failed_trivia_mtime = current_mtime
+            self._log_warning("Error loading trivia configuration; keeping previous sets.", error)
+            return
+
+        self._trivia_sets = self._parse_trivia_sets(data)
+        self._trivia_mtime = current_mtime
+        self._failed_trivia_mtime = None
+
+    def _parse_games(self, data: Dict[str, Any]) -> Dict[str, GameDefinition]:
+        if not isinstance(data, dict):
+            return {}
         games: Dict[str, GameDefinition] = {}
-        for entry in games_data.get("games", []):
+        for entry in data.get("games", []):
             if not isinstance(entry, dict):
                 continue
             key = str(entry.get("key", "")).strip()
             name = str(entry.get("name", key or "Game")).strip() or "Game"
             type_ = str(entry.get("type", "")).strip()
             description = str(entry.get("description", "")).strip()
+            enabled = self._coerce_enabled(entry.get("enabled", True))
             params = {
-                k: v for k, v in entry.items() if k not in {"key", "name", "type", "description"}
+                k: v
+                for k, v in entry.items()
+                if k
+                not in {
+                    "key",
+                    "name",
+                    "type",
+                    "description",
+                    "enabled",
+                }
             }
             if key and type_:
-                games[key] = GameDefinition(key=key, name=name, type=type_, description=description, params=params)
-        self._games = games
+                games[key] = GameDefinition(
+                    key=key,
+                    name=name,
+                    type=type_,
+                    description=description,
+                    enabled=enabled,
+                    params=params,
+                )
+        return games
 
+    def _parse_trivia_sets(self, data: Dict[str, Any]) -> Dict[str, TriviaSet]:
+        if not isinstance(data, dict):
+            return {}
         sets: Dict[str, TriviaSet] = {}
-        for entry in trivia_data.get("sets", []):
+        for entry in data.get("sets", []):
             if not isinstance(entry, dict):
                 continue
             key = str(entry.get("key", "")).strip()
@@ -152,20 +234,49 @@ class GamesManager:
                     reward=max(0.0, reward),
                     questions=questions,
                 )
-        self._trivia_sets = sets
+        return sets
+
+    @staticmethod
+    def _coerce_enabled(value: Any) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() not in {"", "0", "false", "no", "off"}
+        if value is None:
+            return False
+        return bool(value)
+
+    @staticmethod
+    def _get_mtime(path: Path) -> Optional[float]:
+        try:
+            return path.stat().st_mtime
+        except FileNotFoundError:
+            return None
+
+    def _log_warning(self, message: str, error: Exception) -> None:
+        logger = getattr(self.app, "logger", None)
+        if hasattr(logger, "warning"):
+            logger.warning(message, exc_info=error)
 
     # ------------------------------------------------------------------
     # Trivia helpers
     def get_trivia_set(self, key: str) -> Optional[TriviaSet]:
+        self._ensure_current()
         return self._trivia_sets.get(key)
 
     # ------------------------------------------------------------------
     # Game helpers
     def list_games(self) -> List[GameDefinition]:
-        return sorted(self._games.values(), key=lambda game: game.name.lower())
+        self._ensure_current()
+        return sorted(
+            (game for game in self._games.values() if game.enabled),
+            key=lambda game: game.name.lower(),
+        )
 
     def get_game(self, key: str) -> Optional[GameDefinition]:
-        return self._games.get(key)
+        self._ensure_current()
+        game = self._games.get(key)
+        if game is None or not game.enabled:
+            return None
+        return game
 
     # ------------------------------------------------------------------
     # Token helpers
