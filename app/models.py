@@ -1,4 +1,3 @@
-import base64
 from datetime import datetime
 from enum import Enum
 from typing import Union
@@ -454,7 +453,7 @@ class TelestrationEntry(db.Model):
     turn_index = db.Column(db.Integer, nullable=False)
     entry_type = db.Column(db.String(20), nullable=False)
     text_content = db.Column(db.Text, nullable=True)
-    image_data = db.Column(db.LargeBinary, nullable=True)
+    image_filename = db.Column(db.String(512), nullable=True)
     image_mime_type = db.Column(db.String(64), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -475,12 +474,8 @@ class TelestrationEntry(db.Model):
             return "unknown"
         return self.contributor.email.split("@", 1)[0]
 
-    def image_data_url(self) -> str | None:
-        if self.entry_type != "image" or not self.image_data:
-            return None
-        mime_type = self.image_mime_type or "image/png"
-        encoded = base64.b64encode(self.image_data).decode("ascii")
-        return f"data:{mime_type};base64,{encoded}"
+    def image_available(self) -> bool:
+        return self.entry_type == "image" and bool(self.image_filename)
 
     def upvote_count(self) -> int:
         return len(self.upvotes or [])

@@ -32,6 +32,15 @@ def create_app(test_config=None):
     except OSError:
         pass
 
+    storage_path = app.config.get("TELESTRATIONS_STORAGE_PATH")
+    if not storage_path:
+        storage_path = os.path.join(app.instance_path, "telestrations")
+        app.config["TELESTRATIONS_STORAGE_PATH"] = storage_path
+    try:
+        os.makedirs(storage_path, exist_ok=True)
+    except OSError:
+        pass
+
     db.init_app(app)
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"

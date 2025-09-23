@@ -1,4 +1,3 @@
-import base64
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -34,15 +33,15 @@ def test_entry_contributor_prefix_and_upvotes():
     assert entry.upvote_count() == 0
 
 
-def test_image_data_url_encoding():
-    payload = b"binary-data"
-    expected = base64.b64encode(payload).decode("ascii")
+def test_entry_image_availability():
     entry = TelestrationEntry()
     entry.entry_type = "image"
-    entry.image_data = payload
-    entry.image_mime_type = "image/jpeg"
-    assert entry.image_data_url() == f"data:image/jpeg;base64,{expected}"
+    entry.image_filename = "test.png"
+    assert entry.image_available()
 
-    empty_entry = TelestrationEntry()
-    empty_entry.entry_type = "description"
-    assert empty_entry.image_data_url() is None
+    entry.image_filename = ""
+    assert not entry.image_available()
+
+    entry.entry_type = "description"
+    entry.image_filename = "test.png"
+    assert not entry.image_available()

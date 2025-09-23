@@ -2,20 +2,25 @@ import base64
 import hashlib
 import io
 import json
+import mimetypes
 import random
+import secrets
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional, Set
 
 import qrcode
 from flask import (
     Blueprint,
     abort,
+    current_app,
     flash,
     jsonify,
     redirect,
     render_template,
     request,
+    send_file,
     session,
     url_for,
 )
@@ -1583,6 +1588,28 @@ def _get_telestrations_upvote_reward(params: Optional[dict] = None) -> float:
     return max(0.0, value)
 
 
+def _telestrations_storage_dir() -> Path:
+    configured = current_app.config.get("TELESTRATIONS_STORAGE_PATH")
+    base = Path(configured) if configured else Path(current_app.instance_path) / "telestrations"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return base
+
+
+def _store_telestration_image(data: bytes, mime_type: str, game_id: int, turn_index: int) -> str:
+    extension = mimetypes.guess_extension(mime_type) or ".bin"
+    if extension == ".jpe":
+        extension = ".jpg"
+    token = secrets.token_hex(8)
+    filename = f"{game_id:04d}-{turn_index:02d}-{token}{extension}"
+    storage_path = _telestrations_storage_dir() / filename
+    with storage_path.open("wb") as handle:
+        handle.write(data)
+    return filename
+
+
 def _notify_telestration_completed(game: TelestrationGame) -> None:
     participants: List[User] = []
     seen_ids: Set[int] = set()
@@ -1761,12 +1788,13 @@ def telestrations_play(game_id: int):
             if not mime_type.lower().startswith("image/"):
                 flash("Only image uploads are supported for telestrations rounds.", "warning")
                 return redirect(url_for("main.telestrations_play", game_id=game.id))
+            filename = _store_telestration_image(data, mime_type, game.id, next_turn)
             new_entry = TelestrationEntry(
                 game=game,
                 contributor=current_user,
                 turn_index=next_turn,
                 entry_type="image",
-                image_data=data,
+                image_filename=filename,
                 image_mime_type=mime_type,
             )
 
@@ -1799,6 +1827,19 @@ def telestrations_play(game_id: int):
         user_has_played=user_has_played,
         turn_index=turn_index,
     )
+
+
+@bp.route("/games/telestrations/entries/<int:entry_id>/image")
+@login_required
+def telestrations_entry_image(entry_id: int):
+    entry = TelestrationEntry.query.get_or_404(entry_id)
+    if entry.entry_type != "image" or not entry.image_filename:
+        abort(404)
+    storage_path = _telestrations_storage_dir() / entry.image_filename
+    if not storage_path.exists():
+        abort(404)
+    mimetype = entry.image_mime_type or mimetypes.guess_type(storage_path.name)[0] or "image/octet-stream"
+    return send_file(storage_path, mimetype=mimetype, as_attachment=False)
 
 
 @bp.route("/games/telestrations/hall-of-fame")

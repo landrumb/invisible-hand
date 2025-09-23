@@ -10,9 +10,8 @@
       {% if last_entry.entry_type == 'description' %}
         <p class="prompt">“{{ last_entry.text_content }}”</p>
       {% else %}
-        {% set image_url = last_entry.image_data_url() %}
-        {% if image_url %}
-          <img src="{{ image_url }}" alt="Previous drawing" class="telestration-image" />
+        {% if last_entry.image_available() %}
+          <img src="{{ url_for('main.telestrations_entry_image', entry_id=last_entry.id) }}" alt="Previous drawing" class="telestration-image" />
         {% else %}
           <p class="muted">Previous drawing unavailable.</p>
         {% endif %}
