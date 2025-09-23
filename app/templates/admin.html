@@ -132,21 +132,21 @@
       <label>Security
         <select name="security_symbol" required>
           {% for security in securities %}
-            <option value="{{ security.symbol }}">{{ security.symbol }} — {{ security.name }}</option>
+            <option value="{{ security.symbol }}" {% if vote_defaults and vote_defaults.security_symbol == security.symbol %}selected{% endif %}>{{ security.symbol }} — {{ security.name }}</option>
           {% endfor %}
         </select>
       </label>
       <label>Title
-        <input type="text" name="vote_title" required placeholder="Annual meeting proposal">
+        <input type="text" name="vote_title" required placeholder="Annual meeting proposal" value="{{ vote_defaults.vote_title if vote_defaults else '' }}">
       </label>
       <label>Message
-        <textarea name="vote_message" rows="3" required placeholder="Describe the proposal and any relevant context."></textarea>
+        <textarea name="vote_message" rows="3" required placeholder="Describe the proposal and any relevant context.">{{ vote_defaults.vote_message if vote_defaults else '' }}</textarea>
       </label>
       <label>Options (one per line)
-        <textarea name="vote_options" rows="3" required placeholder="Approve&#10;Reject"></textarea>
+        <textarea name="vote_options" rows="3" required placeholder="Approve&#10;Reject">{{ vote_defaults.vote_options if vote_defaults else '' }}</textarea>
       </label>
       <label>Voting deadline
-        <input type="datetime-local" name="vote_deadline" required>
+        <input type="datetime-local" name="vote_deadline" required value="{{ vote_defaults.vote_deadline if vote_defaults else '' }}">
       </label>
       <button class="button" type="submit">Start vote</button>
     </form>

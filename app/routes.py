@@ -12,6 +12,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 from flask_login import current_user, login_required
@@ -1314,6 +1315,17 @@ def admin_dashboard():
     casino_manager = get_casino_manager()
     casino_status = casino_manager.get_status()
 
+    # Prepare defaults/preserved values for the shareholder vote form
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+    preserved_form = session.pop("vote_form", None) or {}
+    vote_defaults = {
+        "security_symbol": preserved_form.get("security_symbol", ""),
+        "vote_title": preserved_form.get("vote_title", ""),
+        "vote_message": preserved_form.get("vote_message", ""),
+        "vote_options": preserved_form.get("vote_options", ""),
+        "vote_deadline": preserved_form.get("vote_deadline", now_str),
+    }
+
     return render_template(
         "admin.html",
         products=products,
@@ -1331,6 +1343,7 @@ def admin_dashboard():
         alerts=recent_alerts,
         open_votes=open_votes,
         recent_votes=recent_votes,
+        vote_defaults=vote_defaults,
     )
 
 
@@ -1447,28 +1460,41 @@ def create_shareholder_vote():
     options_raw = request.form.get("vote_options") or ""
     deadline_raw = request.form.get("vote_deadline") or ""
 
+    form_snapshot = {
+        "security_symbol": symbol,
+        "vote_title": title,
+        "vote_message": message,
+        "vote_options": options_raw,
+        "vote_deadline": deadline_raw,
+    }
+
     if not symbol or not title or not message:
         flash("Security, title, and message are required to start a vote.", "error")
+        session["vote_form"] = form_snapshot
         return redirect(url_for("main.admin_dashboard"))
 
     security = Security.query.get(symbol)
     if not security:
         flash("Could not find that security.", "error")
+        session["vote_form"] = form_snapshot
         return redirect(url_for("main.admin_dashboard"))
 
     try:
         deadline = datetime.strptime(deadline_raw, "%Y-%m-%dT%H:%M")
     except ValueError:
         flash("Please provide a valid deadline.", "error")
+        session["vote_form"] = form_snapshot
         return redirect(url_for("main.admin_dashboard"))
 
     if deadline <= datetime.utcnow():
         flash("Deadline must be in the future.", "error")
+        session["vote_form"] = form_snapshot
         return redirect(url_for("main.admin_dashboard"))
 
     options = [line.strip() for line in options_raw.replace("\r", "").split("\n") if line.strip()]
     if len(options) < 2:
         flash("Provide at least two voting options.", "error")
+        session["vote_form"] = form_snapshot
         return redirect(url_for("main.admin_dashboard"))
 
     vote = ShareholderVote(
@@ -1532,6 +1558,8 @@ def create_shareholder_vote():
             "info",
         )
 
+    # Clear any preserved form data on success
+    session.pop("vote_form", None)
     return redirect(url_for("main.admin_dashboard"))
 
 
