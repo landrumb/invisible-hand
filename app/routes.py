@@ -1,9 +1,11 @@
 import base64
+import hashlib
 import io
+import json
 import random
 import time
 from datetime import datetime, timedelta
-from typing import List, Set
+from typing import List, Optional, Set
 
 import qrcode
 from flask import (
@@ -53,7 +55,7 @@ from .securities import (
 from itsdangerous import BadSignature
 
 from .casino import get_casino_manager
-from .games import get_games_manager
+from .games import TriviaQuestion, get_games_manager
 
 
 bp = Blueprint("main", __name__)
@@ -978,16 +980,76 @@ def _handle_trivia_game(game, manager):
     if trivia_set is None:
         abort(404)
 
-    user_key = f"{current_user.id}"
-    ordered_questions = trivia_set.ordered_for_user(user_key)
+    email = (getattr(current_user, "email", "") or "").strip().lower()
+    if not email:
+        email = f"user-{current_user.id}"
+    user_hash = int(hashlib.sha256(email.encode("utf-8")).hexdigest(), 16)
+
     progress_key = f"game:{game.key}:progress:{current_user.id}"
-    try:
-        index = int(AppSetting.get(progress_key, "0") or "0")
-    except (TypeError, ValueError):
-        index = 0
+    AppSetting.delete(progress_key)
+
+    seen_key = f"game:{game.key}:seen:{current_user.id}"
+    seen_raw = AppSetting.get(seen_key, "") or ""
+    seen_values: Set[int] = set()
+    if seen_raw:
+        parsed_seen: List[int]
+        try:
+            data = json.loads(seen_raw)
+            if isinstance(data, list):
+                parsed_seen = data
+            else:
+                parsed_seen = []
+        except Exception:
+            parsed_seen = [value for value in seen_raw.split(",") if value.strip()]
+        for value in parsed_seen:
+            try:
+                seen_values.add(int(value))
+            except (TypeError, ValueError):
+                continue
+
+    ordered_pairs = trivia_set.ordered_pairs_for_user(user_hash)
+
+    active_key = f"game:{game.key}:active:{current_user.id}"
+    active_raw = AppSetting.get(active_key, "") or ""
+    active_order: Optional[int] = None
+    active_question_id: Optional[str] = None
+    if active_raw:
+        try:
+            active_data = json.loads(active_raw)
+        except Exception:
+            active_data = None
+        if isinstance(active_data, dict):
+            try:
+                active_order = int(active_data.get("order"))
+            except (TypeError, ValueError):
+                active_order = None
+            question_id = active_data.get("question")
+            if isinstance(question_id, str):
+                active_question_id = question_id
+
+    selected_question: Optional[TriviaQuestion] = None
+    selected_order: Optional[int] = None
+
+    if active_question_id is not None and active_order is not None:
+        for order_value, question in ordered_pairs:
+            if question.id == active_question_id and order_value == active_order:
+                selected_question = question
+                selected_order = order_value
+                break
+        else:
+            AppSetting.delete(active_key)
+
+    if selected_question is None:
+        for order_value, question in ordered_pairs:
+            if order_value in seen_values:
+                continue
+            selected_question = question
+            selected_order = order_value
+            AppSetting.set(active_key, json.dumps({"order": order_value, "question": question.id}))
+            break
 
     result = None
-    if request.method == "POST" and ordered_questions:
+    if request.method == "POST" and selected_question is not None:
         token = request.form.get("token", "")
         submitted_answer = request.form.get("answer")
         try:
@@ -1006,55 +1068,76 @@ def _handle_trivia_game(game, manager):
                     "message": "That answer doesn't match the current prompt.",
                 }
             else:
-                expected_index = int(payload.get("index", index))
                 question_id = payload.get("question")
-                if expected_index != index:
+                try:
+                    token_order = int(payload.get("order"))
+                except (TypeError, ValueError):
+                    token_order = None
+                expected_order = int(selected_question.hash_value, 16) ^ user_hash
+                if question_id != selected_question.id or token_order != expected_order:
                     result = {
                         "category": "error",
                         "title": "Out of order",
                         "message": "Looks like you've already moved on."
                     }
+                elif token_order in seen_values:
+                    result = {
+                        "category": "error",
+                        "title": "Already answered",
+                        "message": "You've already completed that question.",
+                    }
                 else:
-                    question = next((q for q in ordered_questions if q.id == question_id), None)
-                    if question is None:
+                    try:
+                        answer_index = int(submitted_answer) if submitted_answer is not None else -1
+                    except (TypeError, ValueError):
+                        answer_index = -1
+                    if answer_index == selected_question.answer:
+                        payout = round(trivia_set.reward * multiplier, 2)
+                        if payout > 0:
+                            record_transaction(current_user, payout, f"{game.name} correct answer")
                         result = {
-                            "category": "error",
-                            "title": "Unknown question",
-                            "message": "That question isn't available anymore.",
+                            "category": "success" if payout > 0 else "info",
+                            "title": "Correct!",
+                            "message": f"You earned {payout:.2f} credits.",
                         }
                     else:
-                        try:
-                            answer_index = int(submitted_answer) if submitted_answer is not None else -1
-                        except (TypeError, ValueError):
-                            answer_index = -1
-                        if answer_index == question.answer:
-                            payout = round(trivia_set.reward * multiplier, 2)
-                            if payout > 0:
-                                record_transaction(current_user, payout, f"{game.name} correct answer")
-                            result = {
-                                "category": "success" if payout > 0 else "info",
-                                "title": "Correct!",
-                                "message": f"You earned {payout:.2f} credits.",
-                            }
-                        else:
-                            correct_choice = question.choices[question.answer]
-                            result = {
-                                "category": "error",
-                                "title": "Incorrect",
-                                "message": f"The correct answer was '{correct_choice}'.",
-                            }
-                        index += 1
-                        AppSetting.set(progress_key, str(index))
+                        correct_choice = selected_question.choices[selected_question.answer]
+                        result = {
+                            "category": "error",
+                            "title": "Incorrect",
+                            "message": f"The correct answer was '{correct_choice}'.",
+                        }
+                    seen_values.add(expected_order)
+                    AppSetting.set(seen_key, json.dumps(sorted(seen_values)))
+                    AppSetting.delete(active_key)
+                    selected_question = None
+                    selected_order = None
 
-    if index >= len(ordered_questions):
+    if selected_question is None:
+        for order_value, question in ordered_pairs:
+            if order_value in seen_values:
+                continue
+            selected_question = question
+            selected_order = order_value
+            AppSetting.set(active_key, json.dumps({"order": order_value, "question": question.id}))
+            break
+
+    if selected_question is None:
         return render_template("games/trivia_complete.html", game=game, result=result)
 
-    question = ordered_questions[index]
-    token = manager.create_token({"game": game.key, "question": question.id, "index": index})
+    if selected_order is None:
+        selected_order = int(selected_question.hash_value, 16) ^ user_hash
+
+    token_payload = {
+        "game": game.key,
+        "question": selected_question.id,
+        "order": selected_order,
+    }
+    token = manager.create_token(token_payload)
     return render_template(
         "games/trivia.html",
         game=game,
-        question=question,
+        question=selected_question,
         token=token,
         set_description=trivia_set.description,
         result=result,

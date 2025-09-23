@@ -50,6 +50,7 @@ class TriviaQuestion:
     prompt: str
     choices: List[str]
     answer: int
+    hash_value: str
     image: Optional[str] = None
     explanation: Optional[str] = None
 
@@ -62,14 +63,15 @@ class TriviaSet:
     reward: float
     questions: List[TriviaQuestion] = field(default_factory=list)
 
-    def ordered_for_user(self, user_identifier: str) -> List[TriviaQuestion]:
-        """Return questions in a deterministic order based on the user id."""
+    def ordered_pairs_for_user(self, user_hash: int) -> List[tuple[int, TriviaQuestion]]:
+        """Return sorted (order value, question) pairs for the given user hash."""
 
-        def _ordering(question: TriviaQuestion) -> str:
-            seed = f"{self.key}:{user_identifier}:{question.id}".encode("utf-8")
-            return hashlib.sha256(seed).hexdigest()
-
-        return sorted(self.questions, key=_ordering)
+        pairs: List[tuple[int, TriviaQuestion]] = []
+        for question in self.questions:
+            question_hash = int(question.hash_value, 16)
+            order_value = question_hash ^ user_hash
+            pairs.append((order_value, question))
+        return sorted(pairs, key=lambda item: item[0])
 
 
 class GamesManager:
@@ -216,12 +218,24 @@ class GamesManager:
                     str(explanation).strip() if isinstance(explanation, str) and explanation.strip() else None
                 )
                 if prompt and clean_choices:
+                    hash_seed_parts = [
+                        key,
+                        qid,
+                        prompt,
+                        "|".join(clean_choices),
+                        str(answer),
+                        image_value or "",
+                        explanation_value or "",
+                    ]
+                    hash_seed = "::".join(hash_seed_parts).encode("utf-8")
+                    question_hash = hashlib.sha256(hash_seed).hexdigest()
                     questions.append(
                         TriviaQuestion(
                             id=qid,
                             prompt=prompt,
                             choices=clean_choices,
                             answer=max(0, min(answer, len(clean_choices) - 1)),
+                            hash_value=question_hash,
                             image=image_value,
                             explanation=explanation_value,
                         )
