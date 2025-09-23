@@ -20,6 +20,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from sqlalchemy import func
 
 from . import db
 from .models import (
@@ -46,6 +47,9 @@ from .models import (
     ShareholderVoteBallot,
     ShareholderVoteOption,
     ShareholderVoteParticipant,
+    TelestrationEntry,
+    TelestrationGame,
+    TelestrationUpvote,
 )
 from .securities import (
     execute_equity_trade,
@@ -859,6 +863,7 @@ def play_game(game_key: str):
         "trivia": _handle_trivia_game,
         "newcomb": _handle_newcomb_game,
         "among_us": _handle_among_us_game,
+        "telestrations": _handle_telestrations_game,
     }
     handler = handlers.get(game.type)
     if handler is None:
@@ -1454,6 +1459,149 @@ def _handle_among_us_game(game, manager):
     )
 
 
+def _handle_telestrations_game(game, manager):
+    configured_turns = _get_telestrations_max_turns(game.params)
+    active_game = _find_active_telestration_game(current_user.id)
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip().lower()
+        if action == "start":
+            prompt = (request.form.get("prompt") or "").strip()
+            if active_game is not None:
+                flash("You already have a telestrations game in progress. Finish it before starting another.", "warning")
+            elif not prompt:
+                flash("Provide a word or short phrase to start the game.", "warning")
+            elif len(prompt) > 120:
+                flash("Keep the starting prompt under 120 characters.", "warning")
+            else:
+                new_game = TelestrationGame(
+                    creator=current_user,
+                    prompt=prompt,
+                    max_turns=configured_turns,
+                    turns_taken=1,
+                )
+                first_entry = TelestrationEntry(
+                    game=new_game,
+                    contributor=current_user,
+                    turn_index=1,
+                    entry_type="description",
+                    text_content=prompt,
+                )
+                db.session.add(new_game)
+                db.session.add(first_entry)
+                db.session.commit()
+                flash("Game started! The drawing relay is waiting for the next player.", "success")
+                return redirect(url_for("main.telestrations_play", game_id=new_game.id))
+        elif action == "join":
+            selection = _pick_telestration_game_for_user(current_user)
+            if selection is None:
+                flash("No active telestrations games need your help right now. Check back soon!", "info")
+            else:
+                return redirect(url_for("main.telestrations_play", game_id=selection.id))
+        else:
+            flash("We couldn't determine that action.", "warning")
+
+    active_count = _telestrations_active_query().count()
+    active_game = _find_active_telestration_game(current_user.id)
+    return render_template(
+        "games/telestrations.html",
+        game=game,
+        active_count=active_count,
+        max_turns=configured_turns,
+        active_game=active_game,
+        upvote_reward=_get_telestrations_upvote_reward(game.params),
+    )
+
+
+def _telestrations_active_query():
+    return TelestrationGame.query.filter(
+        TelestrationGame.completed_at.is_(None),
+        TelestrationGame.turns_taken < TelestrationGame.max_turns,
+    )
+
+
+def _find_active_telestration_game(user_id: int):
+    if not user_id:
+        return None
+    return (
+        _telestrations_active_query()
+        .filter(TelestrationGame.creator_id == user_id)
+        .order_by(TelestrationGame.created_at.desc())
+        .first()
+    )
+
+
+def _pick_telestration_game_for_user(user):
+    query = _telestrations_active_query()
+    if not getattr(user, "id", None):
+        return query.order_by(func.random()).first()
+    subquery = (
+        db.session.query(TelestrationEntry.game_id)
+        .filter(TelestrationEntry.contributor_id == user.id)
+        .subquery()
+    )
+    query = query.filter(~TelestrationGame.id.in_(subquery))
+    query = query.filter(TelestrationGame.creator_id != user.id)
+    return query.order_by(func.random()).first()
+
+
+def _get_telestrations_max_turns(params: Optional[dict] = None) -> int:
+    default_value = 8
+    if isinstance(params, dict):
+        try:
+            candidate = int(params.get("max_turns", default_value) or default_value)
+        except (TypeError, ValueError):
+            candidate = default_value
+        default_value = candidate
+    raw_setting = AppSetting.get("telestrations_max_turns", None)
+    if raw_setting:
+        try:
+            value = int(raw_setting)
+        except (TypeError, ValueError):
+            value = default_value
+    else:
+        value = default_value
+    return max(2, value)
+
+
+def _get_telestrations_upvote_reward(params: Optional[dict] = None) -> float:
+    default_value = 1.0
+    if isinstance(params, dict):
+        try:
+            candidate = float(params.get("upvote_reward", default_value) or default_value)
+        except (TypeError, ValueError):
+            candidate = default_value
+        default_value = candidate
+    raw_setting = AppSetting.get("telestrations_upvote_reward", None)
+    if raw_setting:
+        try:
+            value = float(raw_setting)
+        except (TypeError, ValueError):
+            value = default_value
+    else:
+        value = default_value
+    return max(0.0, value)
+
+
+def _notify_telestration_completed(game: TelestrationGame) -> None:
+    participants: List[User] = []
+    seen_ids: Set[int] = set()
+    for entry in game.entries:
+        if entry.contributor_id in seen_ids or entry.contributor is None:
+            continue
+        participants.append(entry.contributor)
+        seen_ids.add(entry.contributor_id)
+    link = url_for("main.telestrations_hall_of_fame")
+    _create_alert(
+        game.creator,
+        participants,
+        "One of your telestrations games wrapped up! See how the chain ended.",
+        title="Telestrations complete",
+        category="telestrations",
+        payload={"game_id": game.id, "url": link},
+    )
+
+
 def _submit_reaction_game(game, manager):
     multiplier = _activate_game_context(game.key)
     if not request.is_json:
@@ -1556,6 +1704,153 @@ def _submit_among_us_task(game, manager):
         return jsonify({"category": "success" if payout > 0 else "info", "message": message, "payout": payout})
 
     return jsonify({"error": "Unknown task."}), 400
+
+
+@bp.route("/games/telestrations/status")
+@login_required
+def telestrations_status():
+    count = _telestrations_active_query().count()
+    return jsonify({"active_games": count})
+
+
+@bp.route("/games/telestrations/session/<int:game_id>", methods=["GET", "POST"])
+@login_required
+def telestrations_play(game_id: int):
+    game = TelestrationGame.query.get_or_404(game_id)
+    if not game.is_active() and request.method == "GET":
+        flash("This telestrations game has wrapped up. Visit the hall of fame to see the results.", "info")
+        return redirect(url_for("main.telestrations_hall_of_fame"))
+
+    last_entry = game.entries[-1] if game.entries else None
+    expected_type = "image" if game.turns_taken % 2 == 1 else "description"
+    user_has_played = any(entry.contributor_id == current_user.id for entry in game.entries)
+    can_contribute = game.is_active() and not user_has_played
+
+    if request.method == "POST":
+        if not can_contribute:
+            flash("This round can't accept another contribution from you.", "warning")
+            return redirect(url_for("main.play_game", game_key="telestrations"))
+
+        next_turn = game.turns_taken + 1
+        new_entry: Optional[TelestrationEntry] = None
+        if expected_type == "description":
+            description = (request.form.get("description") or "").strip()
+            if not description:
+                flash("Add a brief description before submitting.", "warning")
+                return redirect(url_for("main.telestrations_play", game_id=game.id))
+            new_entry = TelestrationEntry(
+                game=game,
+                contributor=current_user,
+                turn_index=next_turn,
+                entry_type="description",
+                text_content=description,
+            )
+        else:
+            image_file = request.files.get("image")
+            if image_file is None or not image_file.filename:
+                flash("Upload a quick sketch or snapshot for this clue.", "warning")
+                return redirect(url_for("main.telestrations_play", game_id=game.id))
+            data = image_file.read()
+            if not data:
+                flash("We couldn't read that image. Try again.", "warning")
+                return redirect(url_for("main.telestrations_play", game_id=game.id))
+            if len(data) > 3_000_000:
+                flash("Images must be smaller than 3MB.", "warning")
+                return redirect(url_for("main.telestrations_play", game_id=game.id))
+            mime_type = image_file.mimetype or "image/png"
+            if not mime_type.lower().startswith("image/"):
+                flash("Only image uploads are supported for telestrations rounds.", "warning")
+                return redirect(url_for("main.telestrations_play", game_id=game.id))
+            new_entry = TelestrationEntry(
+                game=game,
+                contributor=current_user,
+                turn_index=next_turn,
+                entry_type="image",
+                image_data=data,
+                image_mime_type=mime_type,
+            )
+
+        if new_entry is None:
+            flash("We couldn't record that move.", "error")
+            return redirect(url_for("main.telestrations_play", game_id=game.id))
+
+        db.session.add(new_entry)
+        game.turns_taken = next_turn
+        finished = False
+        if game.turns_taken >= game.max_turns:
+            finished = True
+            game.completed_at = datetime.utcnow()
+        db.session.commit()
+        if finished:
+            _notify_telestration_completed(game)
+            db.session.commit()
+            flash("That completed the chain! Everyone has been notified.", "success")
+            return redirect(url_for("main.telestrations_hall_of_fame"))
+        flash("Thanks for adding to the chain!", "success")
+        return redirect(url_for("main.play_game", game_key="telestrations"))
+
+    turn_index = min(game.turns_taken + 1, game.max_turns)
+    return render_template(
+        "games/telestrations_play.html",
+        game=game,
+        last_entry=last_entry,
+        expected_type=expected_type,
+        can_contribute=can_contribute,
+        user_has_played=user_has_played,
+        turn_index=turn_index,
+    )
+
+
+@bp.route("/games/telestrations/hall-of-fame")
+@login_required
+def telestrations_hall_of_fame():
+    games = (
+        TelestrationGame.query.filter(TelestrationGame.completed_at.isnot(None))
+        .order_by(TelestrationGame.completed_at.desc())
+        .all()
+    )
+    voted_entries: Set[int] = set()
+    if getattr(current_user, "id", None):
+        voted_entries = {
+            vote.entry_id
+            for vote in TelestrationUpvote.query.filter_by(voter_id=current_user.id).all()
+        }
+    return render_template(
+        "games/telestrations_hall_of_fame.html",
+        games=games,
+        voted_entries=voted_entries,
+        upvote_reward=_get_telestrations_upvote_reward(),
+    )
+
+
+@bp.route("/games/telestrations/entries/<int:entry_id>/upvote", methods=["POST"])
+@login_required
+def telestrations_upvote(entry_id: int):
+    entry = TelestrationEntry.query.get_or_404(entry_id)
+    if entry.contributor_id == current_user.id:
+        flash("You can't upvote your own contribution.", "warning")
+        return redirect(request.referrer or url_for("main.telestrations_hall_of_fame"))
+
+    existing = TelestrationUpvote.query.filter_by(entry_id=entry.id, voter_id=current_user.id).first()
+    if existing is not None:
+        flash("You've already upvoted this entry.", "info")
+        return redirect(request.referrer or url_for("main.telestrations_hall_of_fame"))
+
+    vote = TelestrationUpvote(entry=entry, voter_id=current_user.id)
+    db.session.add(vote)
+    reward_base = _get_telestrations_upvote_reward()
+    multiplier = _activate_game_context("telestrations")
+    reward = round(max(0.0, reward_base * multiplier), 2)
+    if reward > 0 and entry.contributor is not None:
+        record_transaction(entry.contributor, reward, "Telestrations upvote reward")
+    else:
+        db.session.commit()
+    flash(
+        "Thanks for cheering on that clue!" + (f" You tipped the artist {reward:.2f} credits." if reward > 0 else ""),
+        "success",
+    )
+    return redirect(request.referrer or url_for("main.telestrations_hall_of_fame"))
+
 
 @bp.route("/casino")
 @login_required

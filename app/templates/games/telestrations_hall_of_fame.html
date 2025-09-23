@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Telestrations Hall of Fame · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel wide">
+  <h1>Telestrations Hall of Fame</h1>
+  <p>
+    Celebrate the best descriptions and sketches from finished games. Each upvote tips the contributor
+    {{ '%.2f'|format(upvote_reward) }} credits.
+  </p>
+</section>
+
+{% if games %}
+  {% for game in games %}
+    <article class="panel wide telestration-run">
+      <header>
+        <h2>Prompt: “{{ game.prompt }}”</h2>
+        <p class="muted">
+          Started {{ game.created_at.strftime('%Y-%m-%d %H:%M') }} · Finished {{ game.completed_at.strftime('%Y-%m-%d %H:%M') if game.completed_at else '—' }}
+        </p>
+      </header>
+      <ol class="telestration-sequence">
+        {% for entry in game.entries %}
+          <li class="telestration-entry telestration-entry-{{ entry.entry_type }}">
+            <header>
+              <strong>Turn {{ entry.turn_index }} · {{ entry.entry_type|capitalize }}</strong>
+            </header>
+            <div class="telestration-body">
+              {% if entry.entry_type == 'description' %}
+                <p>{{ entry.text_content }}</p>
+              {% else %}
+                {% set image_url = entry.image_data_url() %}
+                {% if image_url %}
+                  <img src="{{ image_url }}" alt="Turn {{ entry.turn_index }} drawing" class="telestration-image" />
+                {% else %}
+                  <p class="muted">Image unavailable.</p>
+                {% endif %}
+              {% endif %}
+            </div>
+            <footer class="telestration-footer">
+              <span class="muted">By {{ entry.contributor_prefix() }}</span>
+              <span class="muted">{{ entry.upvote_count() }} upvote{{ '' if entry.upvote_count() == 1 else 's' }}</span>
+              <form method="post" action="{{ url_for('main.telestrations_upvote', entry_id=entry.id) }}">
+                {% set disabled = (entry.contributor_id == current_user.id) or (entry.id in voted_entries) %}
+                <button class="button small" type="submit" {% if disabled %}disabled{% endif %}>👍 Upvote</button>
+              </form>
+            </footer>
+          </li>
+        {% endfor %}
+      </ol>
+    </article>
+  {% endfor %}
+{% else %}
+  <section class="panel wide">
+    <p class="muted">No completed games yet. Start a chain to fill the gallery!</p>
+  </section>
+{% endif %}
+{% endblock %}

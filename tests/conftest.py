@@ -6,17 +6,20 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Stub flask module
+# Stub flask module when the real package is unavailable
 if "flask" not in sys.modules:
-    flask_stub = types.ModuleType("flask")
-    flask_stub.current_app = types.SimpleNamespace()
+    try:
+        import flask  # type: ignore  # noqa: F401
+    except ImportError:
+        flask_stub = types.ModuleType("flask")
+        flask_stub.current_app = types.SimpleNamespace()
 
-    def has_app_context():
-        return False
+        def has_app_context():
+            return False
 
-    flask_stub.has_app_context = has_app_context
-    flask_stub.before_request = lambda func: func
-    sys.modules["flask"] = flask_stub
+        flask_stub.has_app_context = has_app_context
+        flask_stub.before_request = lambda func: func
+        sys.modules["flask"] = flask_stub
 
 # Stub flask_login module
 if "flask_login" not in sys.modules:
@@ -103,6 +106,7 @@ if "app" not in sys.modules:
         JSON = dict
         Text = str
         Boolean = bool
+        LargeBinary = bytes
 
         @staticmethod
         def Column(*args, **kwargs):

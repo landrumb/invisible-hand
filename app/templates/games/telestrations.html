@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Telestrations Relay · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel wide">
+  <h1>{{ game.name }}</h1>
+  <p>{{ game.description }}</p>
+  <p>
+    <strong>Games in progress:</strong>
+    <span id="telestrations-count">{{ active_count }}</span>
+  </p>
+  <p class="muted">Each chain runs for {{ max_turns }} turns. Upvotes pay {{ '%.2f'|format(upvote_reward) }} credits to the contributor.</p>
+</section>
+
+<section class="grid game-actions">
+  <article class="panel">
+    <h2>Start a New Chain</h2>
+    {% if active_game %}
+      <p class="muted">
+        You started a game on {{ active_game.created_at.strftime('%Y-%m-%d %H:%M') }} that is still waiting for turns.
+        <a href="{{ url_for('main.telestrations_play', game_id=active_game.id) }}">Check in on it</a>.
+      </p>
+    {% else %}
+      <form method="post">
+        <input type="hidden" name="action" value="start" />
+        <label for="prompt">Prompt word or phrase</label>
+        <input id="prompt" name="prompt" type="text" maxlength="120" required placeholder="e.g. Space llama" />
+        <p class="muted">Keep it short and family friendly. The next player will have to draw it.</p>
+        <button class="button" type="submit">Launch game</button>
+      </form>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <h2>Join a Random Game</h2>
+    <p>We'll find an active chain you haven't contributed to yet and hand you the next clue.</p>
+    <form method="post">
+      <input type="hidden" name="action" value="join" />
+      <button class="button secondary" type="submit">Find a game</button>
+    </form>
+  </article>
+</section>
+
+<section class="panel wide">
+  <h2>Hall of Fame</h2>
+  <p>
+    When a chain finishes, everyone gets to see the full evolution and vote for their favorite moments.
+    <a class="button secondary" href="{{ url_for('main.telestrations_hall_of_fame') }}">Browse completed games</a>
+  </p>
+</section>
+
+<script>
+  (function () {
+    const counter = document.getElementById('telestrations-count');
+    if (!counter) {
+      return;
+    }
+    const endpoint = {{ url_for('main.telestrations_status')|tojson }};
+    let timerId;
+    async function refreshCount() {
+      try {
+        const response = await fetch(endpoint, {headers: {'Accept': 'application/json'}});
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        if (data && typeof data.active_games === 'number') {
+          counter.textContent = data.active_games;
+        }
+      } catch (err) {
+        // ignore network errors silently
+      }
+    }
+    function schedule() {
+      clearTimeout(timerId);
+      timerId = setTimeout(() => {
+        refreshCount();
+        schedule();
+      }, 10000);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        refreshCount();
+      }
+    });
+    refreshCount();
+    schedule();
+  })();
+</script>
+{% endblock %}
