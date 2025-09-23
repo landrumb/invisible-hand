@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel game" data-task-game data-task-type="{{ task_type }}" data-submit-url="{{ submit_url }}" data-token="{{ token }}"{% if task_state %} data-state='{{ task_state | tojson | safe }}'{% endif %}>
+  <h1>{{ game.name }}</h1>
+  <p>{{ game.description }}</p>
+  {% if task_type == 'swipe_card' %}
+    <p class="game-details">Press and hold the card, then drag smoothly across the reader. Too fast or too slow and the reader rejects it.</p>
+    <div class="card-reader" data-role="card-reader">
+      <div class="card" data-role="card">Crewmate ID</div>
+      <div class="reader-track" data-role="track"></div>
+    </div>
+  {% elif task_type == 'prime_shields' %}
+    <p class="game-details">Toggle each shield segment until the entire ring is glowing.</p>
+    <div class="shield-grid" data-role="shield-grid">
+      {% for _ in range(7) %}
+        <button type="button" class="shield-segment" aria-pressed="false"></button>
+      {% endfor %}
+    </div>
+  {% elif task_type == 'align_engine' %}
+    <p class="game-details">Move the thruster slider so the indicator lines up with the target marker.</p>
+    <div class="engine-align" data-role="engine-align">
+      <div class="engine-target" data-role="target"></div>
+      <input type="range" min="0" max="100" value="50" data-role="slider">
+    </div>
+  {% endif %}
+  <p class="game-status" data-role="status">Complete the task to earn a payout.</p>
+</section>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script defer src="{{ url_for('static', filename='games.js') }}"></script>
+{% endblock %}

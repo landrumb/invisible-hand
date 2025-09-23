@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel game">
+  <h1>{{ game.name }}</h1>
+  <p>{{ game.description }}</p>
+  <p class="game-details">Solve {{ a }} × {{ b }} as fast as you can. Rewards shrink as the timer ticks.</p>
+  <form method="post" class="game-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label>
+      Your answer
+      <input type="number" name="answer" required autofocus>
+    </label>
+    <button type="submit" class="button primary">Submit</button>
+  </form>
+  <p class="game-subtext">You started this round at {{ started_at }}.</p>
+  {% if result %}
+    <div class="game-result {{ result.category }}">
+      <strong>{{ result.title }}</strong>
+      <p>{{ result.message }}</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

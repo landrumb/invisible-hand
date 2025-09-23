@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel game" data-newcomb-game>
+  <h1>{{ game.name }}</h1>
+  <p>{{ game.description }}</p>
+  <p class="game-details">Click the boxes you plan to take, then lock in your decision. Omega already knows.</p>
+  <form method="post" class="game-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="selection" value="{{ selection|join(',') }}" data-role="selection-field">
+    <div class="newcomb-grid" data-role="box-grid">
+      <article class="newcomb-box {% if 'transparent' in selection %}selected{% endif %}" data-box="transparent">
+        <h2>Transparent Box</h2>
+        <p>Contains a guaranteed {{ small_payout }} credit payout.</p>
+      </article>
+      <article class="newcomb-box {% if 'opaque' in selection %}selected{% endif %}" data-box="opaque">
+        <h2>Opaque Box</h2>
+        <p>Contains either {{ large_payout }} credits or nothing.</p>
+      </article>
+    </div>
+    <button type="submit" class="button primary">Submit selection</button>
+  </form>
+  {% if result %}
+    <div class="game-result {{ result.category }}">
+      <strong>{{ result.title }}</strong>
+      <p>{{ result.message }}</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script defer src="{{ url_for('static', filename='games.js') }}"></script>
+{% endblock %}

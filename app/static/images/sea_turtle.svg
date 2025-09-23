@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Stylized sea turtle">
+  <rect width="200" height="200" fill="#dff4f7" rx="24" />
+  <g transform="translate(36 60)">
+    <ellipse cx="64" cy="44" rx="54" ry="38" fill="#2c7a78" />
+    <ellipse cx="64" cy="44" rx="40" ry="28" fill="#3fa79f" />
+    <path d="M10 36c-12-12-20-18-20-30 16-6 30-6 40 6" fill="#2c7a78" />
+    <path d="M118 36c12-12 20-18 20-30-16-6-30-6-40 6" fill="#2c7a78" />
+    <path d="M44 78c-6 18-10 34-2 50 10-2 18-8 22-18" fill="#2c7a78" />
+    <path d="M84 78c6 18 10 34 2 50-10-2-18-8-22-18" fill="#2c7a78" />
+    <circle cx="48" cy="38" r="6" fill="#16393a" />
+    <circle cx="80" cy="38" r="6" fill="#16393a" />
+  </g>
+</svg>

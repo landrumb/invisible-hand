@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel game trivia">
+  <h1>{{ game.name }}</h1>
+  <p>{{ game.description }}</p>
+  {% if result %}
+    <div class="game-result {{ result.category }}">
+      <strong>{{ result.title }}</strong>
+      <p>{{ result.message }}</p>
+    </div>
+  {% endif %}
+  <div class="game-result success">
+    <strong>Deck cleared!</strong>
+    <p>You've answered every available question for now. Check back later for new prompts.</p>
+  </div>
+</section>
+{% endblock %}

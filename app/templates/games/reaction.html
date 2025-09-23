@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel game" data-reaction-game data-submit-url="{{ submit_url }}" data-token="{{ token }}">
+  <h1>{{ game.name }}</h1>
+  <p>{{ game.description }}</p>
+  <p class="game-details">Click "Start" and wait. When the card flashes green, hit "React!" immediately.</p>
+  <div class="reaction-stage" data-role="stage">
+    <button type="button" class="button primary" data-role="start">Start</button>
+    <button type="button" class="button success" data-role="react" hidden>React!</button>
+  </div>
+  <p class="game-status" data-role="status">Waiting to start…</p>
+  <p class="game-subtext">The faster your response ({{ max_time }}s window), the larger the payout.</p>
+</section>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script defer src="{{ url_for('static', filename='games.js') }}"></script>
+{% endblock %}

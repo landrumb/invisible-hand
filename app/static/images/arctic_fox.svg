@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Stylized arctic fox">
+  <rect width="200" height="200" fill="#eef4fb" rx="24" />
+  <g transform="translate(40 28)">
+    <ellipse cx="60" cy="60" rx="54" ry="46" fill="#f9fbff" stroke="#cfd9ea" stroke-width="6" />
+    <path d="M12 44c0-18 10-32 24-36l8 24z" fill="#cfd9ea" />
+    <path d="M108 44c0-18-10-32-24-36l-8 24z" fill="#cfd9ea" />
+    <ellipse cx="44" cy="58" rx="8" ry="10" fill="#1f1a17" />
+    <ellipse cx="76" cy="58" rx="8" ry="10" fill="#1f1a17" />
+    <path d="M60 72c-8 0-14 6-14 12 0 6 6 10 14 10s14-4 14-10c0-6-6-12-14-12z" fill="#d4e0ef" />
+  </g>
+  <path d="M40 150c16 14 34 26 60 26s44-12 60-26c-12-30-32-48-60-48s-48 18-60 48z" fill="#d4e0ef" opacity="0.8" />
+</svg>

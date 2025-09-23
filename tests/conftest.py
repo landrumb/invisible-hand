@@ -28,6 +28,27 @@ if "flask_login" not in sys.modules:
     flask_login_stub.user_loader = lambda func: func
     sys.modules["flask_login"] = flask_login_stub
 
+# Stub itsdangerous
+if "itsdangerous" not in sys.modules:
+    itsdangerous_stub = types.ModuleType("itsdangerous")
+
+    class DummyBadSignature(Exception):
+        pass
+
+    class DummySerializer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def dumps(self, payload):
+            return "token"
+
+        def loads(self, token):
+            return {}
+
+    itsdangerous_stub.BadSignature = DummyBadSignature
+    itsdangerous_stub.URLSafeSerializer = DummySerializer
+    sys.modules["itsdangerous"] = itsdangerous_stub
+
 # Stub sqlalchemy modules
 if "sqlalchemy" not in sys.modules:
     sqlalchemy_stub = types.ModuleType("sqlalchemy")
