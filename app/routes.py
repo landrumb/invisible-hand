@@ -1,5 +1,7 @@
 import base64
 import io
+import random
+import time
 from datetime import datetime, timedelta
 from typing import List, Set
 
@@ -48,7 +50,10 @@ from .securities import (
     execute_option_trade,
     get_simulator,
 )
+from itsdangerous import BadSignature
+
 from .casino import get_casino_manager
+from .games import get_games_manager
 
 
 bp = Blueprint("main", __name__)
@@ -93,6 +98,15 @@ def record_transaction(user, amount, description, counterparty=None, type_="game
     if commit:
         db.session.commit()
     return txn
+
+
+def _activate_game_context(game_key: str) -> float:
+    AppSetting.set("current_game_context", game_key)
+    try:
+        multiplier = float(AppSetting.get(f"game:{game_key}:multiplier", "1.0") or "1.0")
+    except Exception:
+        multiplier = 1.0
+    return multiplier if multiplier >= 0 else 0.0
 
 
 def _create_alert(creator, recipients: List[User], message: str, *, title: str | None = None, category: str = "message", payload: dict | None = None, vote: ShareholderVote | None = None):
@@ -819,6 +833,440 @@ def single_player():
         return redirect(url_for("main.single_player"))
     return render_template("single_player.html", reward=reward)
 
+
+@bp.route("/games")
+@login_required
+def games_lobby():
+    manager = get_games_manager()
+    games = manager.list_games()
+    return render_template("games/index.html", games=games)
+
+
+@bp.route("/games/<game_key>", methods=["GET", "POST"])
+@login_required
+def play_game(game_key: str):
+    manager = get_games_manager()
+    game = manager.get_game(game_key)
+    if game is None:
+        abort(404)
+
+    handlers = {
+        "timed_math": _handle_timed_math_game,
+        "reaction": _handle_reaction_game,
+        "trivia": _handle_trivia_game,
+        "newcomb": _handle_newcomb_game,
+        "among_us": _handle_among_us_game,
+    }
+    handler = handlers.get(game.type)
+    if handler is None:
+        abort(404)
+    return handler(game, manager)
+
+
+@bp.route("/games/<game_key>/submit", methods=["POST"])
+@login_required
+def submit_game_result(game_key: str):
+    manager = get_games_manager()
+    game = manager.get_game(game_key)
+    if game is None:
+        return jsonify({"error": "Unknown game."}), 404
+
+    handlers = {
+        "reaction": _submit_reaction_game,
+        "among_us": _submit_among_us_task,
+    }
+    handler = handlers.get(game.type)
+    if handler is None:
+        return jsonify({"error": "Game does not accept direct submissions."}), 400
+    return handler(game, manager)
+
+
+def _handle_timed_math_game(game, manager):
+    multiplier = _activate_game_context(game.key)
+    result = None
+    if request.method == "POST":
+        token = request.form.get("token", "")
+        answer_raw = request.form.get("answer")
+        try:
+            payload = manager.load_token(token)
+        except BadSignature:
+            result = {
+                "category": "error",
+                "title": "Invalid round",
+                "message": "We couldn't verify that round. Try another problem.",
+            }
+        else:
+            if payload.get("game") != game.key:
+                result = {
+                    "category": "error",
+                    "title": "Mismatched round",
+                    "message": "That attempt doesn't match the current puzzle.",
+                }
+            else:
+                try:
+                    answer = int(answer_raw) if answer_raw is not None else None
+                except (TypeError, ValueError):
+                    answer = None
+                expected = int(payload.get("a", 0)) * int(payload.get("b", 0))
+                start_ts = float(payload.get("start", payload.get("_ts", time.time())))
+                elapsed = max(0.0, min(300.0, time.time() - start_ts))
+                max_time = float(game.params.get("max_time", 10.0) or 10.0)
+                base_reward = float(game.params.get("base_reward", 10.0) or 10.0)
+                min_reward = float(game.params.get("min_reward", 0.0) or 0.0)
+                min_factor = float(game.params.get("min_factor", 0.0) or 0.0)
+                if answer is None:
+                    result = {
+                        "category": "error",
+                        "title": "Missing answer",
+                        "message": "Please enter a numeric answer before submitting.",
+                    }
+                elif answer != expected:
+                    result = {
+                        "category": "error",
+                        "title": "Not quite",
+                        "message": f"The correct product was {expected}.",
+                    }
+                else:
+                    if max_time <= 0:
+                        speed_factor = 1.0
+                    else:
+                        speed_factor = max(min_factor, max(0.0, (max_time - elapsed) / max_time))
+                    raw_reward = max(base_reward * speed_factor, min_reward)
+                    payout = round(max(0.0, raw_reward * multiplier), 2)
+                    if payout > 0:
+                        record_transaction(current_user, payout, f"{game.name} win")
+                    result = {
+                        "category": "success" if payout > 0 else "info",
+                        "title": "Correct!",
+                        "message": f"You solved it in {elapsed:.2f}s and earned {payout:.2f} credits.",
+                    }
+
+    a = random.randint(10, 99)
+    b = random.randint(10, 99)
+    start_ts = time.time()
+    token = manager.create_token({"game": game.key, "a": a, "b": b, "start": start_ts})
+    started_at = datetime.utcfromtimestamp(start_ts).strftime("%H:%M:%S UTC")
+    return render_template(
+        "games/timed_math.html",
+        game=game,
+        a=a,
+        b=b,
+        token=token,
+        started_at=started_at,
+        result=result,
+    )
+
+
+def _handle_reaction_game(game, manager):
+    _activate_game_context(game.key)
+    token = manager.create_token({"game": game.key, "mode": "reaction"})
+    max_time = float(game.params.get("max_time", 1.0) or 1.0)
+    submit_url = url_for("main.submit_game_result", game_key=game.key)
+    return render_template(
+        "games/reaction.html",
+        game=game,
+        token=token,
+        max_time=f"{max_time:.2f}",
+        submit_url=submit_url,
+    )
+
+
+def _handle_trivia_game(game, manager):
+    multiplier = _activate_game_context(game.key)
+    set_key = str(game.params.get("question_set", "")).strip()
+    trivia_set = manager.get_trivia_set(set_key)
+    if trivia_set is None:
+        abort(404)
+
+    user_key = f"{current_user.id}"
+    ordered_questions = trivia_set.ordered_for_user(user_key)
+    progress_key = f"game:{game.key}:progress:{current_user.id}"
+    try:
+        index = int(AppSetting.get(progress_key, "0") or "0")
+    except (TypeError, ValueError):
+        index = 0
+
+    result = None
+    if request.method == "POST" and ordered_questions:
+        token = request.form.get("token", "")
+        submitted_answer = request.form.get("answer")
+        try:
+            payload = manager.load_token(token)
+        except BadSignature:
+            result = {
+                "category": "error",
+                "title": "Invalid submission",
+                "message": "We couldn't verify that question. Try again.",
+            }
+        else:
+            if payload.get("game") != game.key:
+                result = {
+                    "category": "error",
+                    "title": "Mismatched question",
+                    "message": "That answer doesn't match the current prompt.",
+                }
+            else:
+                expected_index = int(payload.get("index", index))
+                question_id = payload.get("question")
+                if expected_index != index:
+                    result = {
+                        "category": "error",
+                        "title": "Out of order",
+                        "message": "Looks like you've already moved on."
+                    }
+                else:
+                    question = next((q for q in ordered_questions if q.id == question_id), None)
+                    if question is None:
+                        result = {
+                            "category": "error",
+                            "title": "Unknown question",
+                            "message": "That question isn't available anymore.",
+                        }
+                    else:
+                        try:
+                            answer_index = int(submitted_answer) if submitted_answer is not None else -1
+                        except (TypeError, ValueError):
+                            answer_index = -1
+                        if answer_index == question.answer:
+                            payout = round(trivia_set.reward * multiplier, 2)
+                            if payout > 0:
+                                record_transaction(current_user, payout, f"{game.name} correct answer")
+                            result = {
+                                "category": "success" if payout > 0 else "info",
+                                "title": "Correct!",
+                                "message": f"You earned {payout:.2f} credits.",
+                            }
+                        else:
+                            correct_choice = question.choices[question.answer]
+                            result = {
+                                "category": "error",
+                                "title": "Incorrect",
+                                "message": f"The correct answer was '{correct_choice}'.",
+                            }
+                        index += 1
+                        AppSetting.set(progress_key, str(index))
+
+    if index >= len(ordered_questions):
+        return render_template("games/trivia_complete.html", game=game, result=result)
+
+    question = ordered_questions[index]
+    token = manager.create_token({"game": game.key, "question": question.id, "index": index})
+    return render_template(
+        "games/trivia.html",
+        game=game,
+        question=question,
+        token=token,
+        set_description=trivia_set.description,
+        result=result,
+    )
+
+
+def _handle_newcomb_game(game, manager):
+    multiplier = _activate_game_context(game.key)
+    result = None
+    selection_raw = request.form.get("selection", "") if request.method == "POST" else ""
+    selection = [part for part in selection_raw.split(",") if part]
+    token = manager.create_token({"game": game.key, "mode": "newcomb"})
+    base_small = float(game.params.get("payout_small", 25.0) or 0.0)
+    base_large = float(game.params.get("payout_large", 150.0) or 0.0)
+    base_both = float(game.params.get("payout_both", 0.0) or 0.0)
+    if request.method == "POST":
+        token_value = request.form.get("token", "")
+        try:
+            payload = manager.load_token(token_value)
+        except BadSignature:
+            result = {
+                "category": "error",
+                "title": "Invalid selection",
+                "message": "We couldn't verify your choice. Try again.",
+            }
+        else:
+            if payload.get("game") != game.key:
+                result = {
+                    "category": "error",
+                    "title": "Mismatched selection",
+                    "message": "Those boxes don't match the current round.",
+                }
+            else:
+                chosen = set(selection)
+                if not chosen:
+                    result = {
+                        "category": "error",
+                        "title": "No boxes selected",
+                        "message": "Choose at least one box before submitting.",
+                    }
+                elif chosen == {"transparent", "opaque"}:
+                    payout = round(max(0.0, base_both * multiplier), 2)
+                    result = {
+                        "category": "error" if payout <= 0 else "info",
+                        "title": "Two-box trap",
+                        "message": f"Omega saw it coming. You earned {payout:.2f} credits.",
+                    }
+                elif chosen == {"transparent"}:
+                    payout = round(max(0.0, base_small * multiplier), 2)
+                    if payout > 0:
+                        record_transaction(current_user, payout, f"{game.name} small box")
+                    result = {
+                        "category": "success" if payout > 0 else "info",
+                        "title": "Safe pick",
+                        "message": f"The transparent box paid out {payout:.2f} credits.",
+                    }
+                elif chosen == {"opaque"}:
+                    payout = round(max(0.0, base_large * multiplier), 2)
+                    if payout > 0:
+                        record_transaction(current_user, payout, f"{game.name} opaque box")
+                    result = {
+                        "category": "success" if payout > 0 else "info",
+                        "title": "Bold move",
+                        "message": f"Omega left you {payout:.2f} credits.",
+                    }
+                else:
+                    payout = 0.0
+                    result = {
+                        "category": "error",
+                        "title": "Confused choice",
+                        "message": "We only recognize the transparent and opaque boxes.",
+                    }
+    small_display = round(max(0.0, base_small * multiplier), 2)
+    large_display = round(max(0.0, base_large * multiplier), 2)
+    return render_template(
+        "games/newcomb.html",
+        game=game,
+        token=token,
+        selection=selection,
+        small_payout=f"{small_display:.2f}",
+        large_payout=f"{large_display:.2f}",
+        result=result,
+    )
+
+
+def _handle_among_us_game(game, manager):
+    _activate_game_context(game.key)
+    task_type = str(game.params.get("task", "")).strip()
+    if task_type not in {"swipe_card", "prime_shields", "align_engine"}:
+        abort(404)
+
+    state: dict = {}
+    payload = {"game": game.key, "task": task_type}
+    if task_type == "align_engine":
+        target = random.randint(10, 90)
+        precision = float(game.params.get("precision", 3.0) or 3.0)
+        state = {"target": target, "precision": precision}
+        payload.update(state)
+    token = manager.create_token(payload)
+    submit_url = url_for("main.submit_game_result", game_key=game.key)
+    return render_template(
+        "games/among_us.html",
+        game=game,
+        task_type=task_type,
+        submit_url=submit_url,
+        token=token,
+        task_state=state or None,
+    )
+
+
+def _submit_reaction_game(game, manager):
+    multiplier = _activate_game_context(game.key)
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON payload."}), 400
+    data = request.get_json(silent=True) or {}
+    token = data.get("token")
+    duration = data.get("duration")
+    try:
+        duration_value = float(duration)
+    except (TypeError, ValueError):
+        duration_value = -1.0
+    try:
+        payload = manager.load_token(token or "")
+    except BadSignature:
+        return jsonify({"error": "Invalid attempt."}), 400
+    if payload.get("game") != game.key:
+        return jsonify({"error": "Mismatched attempt."}), 400
+    elapsed = max(0.0, duration_value)
+    max_time = float(game.params.get("max_time", 1.0) or 1.0)
+    base_reward = float(game.params.get("base_reward", 5.0) or 5.0)
+    if elapsed <= 0.0:
+        return jsonify({"error": "Too early."}), 400
+    if max_time <= 0:
+        factor = 1.0
+    else:
+        factor = max(0.0, min(1.0, (max_time - elapsed) / max_time))
+    payout = round(max(0.0, base_reward * factor * multiplier), 2)
+    if payout > 0:
+        record_transaction(current_user, payout, f"{game.name} reaction win")
+    message = f"Reaction time: {elapsed:.3f}s. Payout: {payout:.2f} credits."
+    return jsonify({"category": "success" if payout > 0 else "info", "message": message, "payout": payout})
+
+
+def _submit_among_us_task(game, manager):
+    multiplier = _activate_game_context(game.key)
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON payload."}), 400
+    data = request.get_json(silent=True) or {}
+    token = data.get("token")
+    try:
+        payload = manager.load_token(token or "")
+    except BadSignature:
+        return jsonify({"error": "Invalid attempt."}), 400
+    if payload.get("game") != game.key:
+        return jsonify({"error": "Mismatched attempt."}), 400
+
+    task_type = payload.get("task")
+    duration = data.get("duration")
+    try:
+        duration_value = float(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        duration_value = None
+
+    base_reward = float(game.params.get("base_reward", 5.0) or 5.0)
+    if task_type == "swipe_card":
+        ideal = float(game.params.get("ideal_time", 1.2) or 1.2)
+        tolerance = max(0.1, float(game.params.get("tolerance", 0.6) or 0.6))
+        if duration_value is None or duration_value <= 0:
+            return jsonify({"error": "Swipe not detected."}), 400
+        deviation = abs(duration_value - ideal)
+        if deviation > tolerance:
+            return jsonify({"error": "Card rejected. Too fast or too slow."}), 400
+        factor = max(0.2, 1.0 - deviation / tolerance)
+        payout = round(max(0.0, base_reward * factor * multiplier), 2)
+        if payout > 0:
+            record_transaction(current_user, payout, f"{game.name} success")
+        message = f"Swipe speed {duration_value:.2f}s. Payout: {payout:.2f} credits."
+        return jsonify({"category": "success" if payout > 0 else "info", "message": message, "payout": payout})
+
+    if task_type == "prime_shields":
+        if duration_value is None or duration_value <= 0:
+            return jsonify({"error": "Toggle the shields first."}), 400
+        efficiency = max(0.3, min(1.0, 3.5 / max(duration_value, 0.3)))
+        payout = round(max(0.0, base_reward * efficiency * multiplier), 2)
+        if payout > 0:
+            record_transaction(current_user, payout, f"{game.name} shields")
+        message = f"Shields primed in {duration_value:.2f}s. Payout: {payout:.2f} credits."
+        return jsonify({"category": "success" if payout > 0 else "info", "message": message, "payout": payout})
+
+    if task_type == "align_engine":
+        try:
+            value = float(data.get("value"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Missing alignment value."}), 400
+        target = float(payload.get("target", 50.0))
+        precision = float(payload.get("precision", game.params.get("precision", 3.0) or 3.0))
+        delta = abs(value - target)
+        if delta > precision:
+            return jsonify({"error": "Alignment off target."}), 400
+        if duration_value is None or duration_value <= 0:
+            duration_value = 1.0
+        efficiency = max(0.4, min(1.0, 2.5 / max(duration_value, 0.4)))
+        payout = round(max(0.0, base_reward * efficiency * multiplier), 2)
+        if payout > 0:
+            record_transaction(current_user, payout, f"{game.name} engines")
+        message = (
+            f"Thrusters aligned within {delta:.2f} units in {duration_value:.2f}s. "
+            f"Payout: {payout:.2f} credits."
+        )
+        return jsonify({"category": "success" if payout > 0 else "info", "message": message, "payout": payout})
+
+    return jsonify({"error": "Unknown task."}), 400
 
 @bp.route("/casino")
 @login_required

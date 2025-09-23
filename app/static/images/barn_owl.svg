@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Stylized barn owl">
+  <rect width="200" height="200" fill="#f5f1e8" rx="24" />
+  <g transform="translate(60 20)">
+    <ellipse cx="40" cy="52" rx="40" ry="48" fill="#f9f6ef" stroke="#d7c7a5" stroke-width="6" />
+    <path d="M12 70c12-12 20-18 28-18s16 6 28 18" fill="none" stroke="#d7c7a5" stroke-width="6" stroke-linecap="round" />
+    <circle cx="28" cy="48" r="10" fill="#1f1a17" />
+    <circle cx="52" cy="48" r="10" fill="#1f1a17" />
+    <path d="M40 56c-6 0-10 4-10 8s4 8 10 8 10-4 10-8-4-8-10-8z" fill="#e8a74b" />
+  </g>
+  <path d="M80 96c-12 20-20 46-20 72 18 8 36 12 56 12s38-4 56-12c0-26-8-52-20-72" fill="#d7c7a5" opacity="0.8" />
+  <path d="M94 120h12l-6 32z" fill="#b37b2a" />
+</svg>

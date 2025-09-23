@@ -1,0 +1,65 @@
+[[sets]]
+key = "general"
+title = "General Trivia"
+description = "A sampler platter of approachable questions."
+reward = 6.0
+
+  [[sets.questions]]
+  id = "general-planet"
+  prompt = "Which planet is nicknamed the Red Planet?"
+  choices = ["Mercury", "Venus", "Earth", "Mars"]
+  answer = 3
+  explanation = "Rust-colored iron oxide in the soil gives Mars its distinctive hue."
+
+  [[sets.questions]]
+  id = "general-bridge"
+  prompt = "What is the longest suspension bridge in the United States?"
+  choices = ["Golden Gate Bridge", "Verrazzano-Narrows Bridge", "Mackinac Bridge", "Delaware Memorial Bridge"]
+  answer = 2
+  explanation = "At just under five miles long, the Mackinac Bridge connects Michigan's peninsulas."
+
+  [[sets.questions]]
+  id = "general-light"
+  prompt = "Which color of visible light has the shortest wavelength?"
+  choices = ["Red", "Yellow", "Green", "Violet"]
+  answer = 3
+
+  [[sets.questions]]
+  id = "general-coffee"
+  prompt = "Espresso is named after the Italian word meaning what?"
+  choices = ["Pressed out", "Fast", "Strong", "Foamy"]
+  answer = 1
+
+[[sets]]
+key = "animals"
+title = "Animal Identification"
+description = "Name the animal shown in the illustration."
+reward = 6.0
+
+  [[sets.questions]]
+  id = "animal-red-panda"
+  prompt = "Which animal is pictured?"
+  image = "/static/images/red_panda.svg"
+  choices = ["Red panda", "Raccoon", "Fox", "Tanuki"]
+  answer = 0
+
+  [[sets.questions]]
+  id = "animal-barn-owl"
+  prompt = "Which animal is pictured?"
+  image = "/static/images/barn_owl.svg"
+  choices = ["Snowy owl", "Barn owl", "Falcon", "Kookaburra"]
+  answer = 1
+
+  [[sets.questions]]
+  id = "animal-sea-turtle"
+  prompt = "Which animal is pictured?"
+  image = "/static/images/sea_turtle.svg"
+  choices = ["Manatee", "Seal", "Sea turtle", "Dolphin"]
+  answer = 2
+
+  [[sets.questions]]
+  id = "animal-arctic-fox"
+  prompt = "Which animal is pictured?"
+  image = "/static/images/arctic_fox.svg"
+  choices = ["Arctic fox", "Wolf", "Polar bear", "Husky"]
+  answer = 0

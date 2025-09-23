@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel game trivia">
+  <h1>{{ game.name }}</h1>
+  <p>{{ game.description }}</p>
+  {% if set_description %}
+    <p class="game-details">{{ set_description }}</p>
+  {% endif %}
+
+  <form method="post" class="game-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <fieldset>
+      <legend>{{ question.prompt }}</legend>
+      {% if question.image %}
+        <figure class="trivia-figure">
+          <img src="{{ question.image }}" alt="Question illustration">
+        </figure>
+      {% endif %}
+      {% for choice in question.choices %}
+        <label class="choice">
+          <input type="radio" name="answer" value="{{ loop.index0 }}" required>
+          <span>{{ choice }}</span>
+        </label>
+      {% endfor %}
+    </fieldset>
+    <button type="submit" class="button primary">Lock in answer</button>
+  </form>
+
+  {% if result %}
+    <div class="game-result {{ result.category }}">
+      <strong>{{ result.title }}</strong>
+      <p>{{ result.message }}</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

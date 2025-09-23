@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Games Hub · Invisible Hand Arcade{% endblock %}
+{% block content %}
+<section class="panel wide">
+  <h1>Games Hub</h1>
+  <p>
+    Choose your challenge: speed-based puzzles, trivia, logic dilemmas, or replicas of classic Among Us
+    maintenance jobs. Each game pays out credits according to its own rules.
+  </p>
+</section>
+
+<section class="panel wide game-grid">
+  {% for game in games %}
+    <article class="game-card">
+      <h2>{{ game.name }}</h2>
+      <p>{{ game.description }}</p>
+      <a class="button secondary" href="{{ url_for('main.play_game', game_key=game.key) }}">Play</a>
+    </article>
+  {% endfor %}
+</section>
+{% endblock %}
