@@ -31,6 +31,7 @@
       }
       startedAt = 0;
       startButton.disabled = false;
+      startButton.hidden = false;
       reactButton.hidden = true;
       reactButton.disabled = true;
       status.textContent = "Waiting to start…";
@@ -39,13 +40,13 @@
 
     function readyUp() {
       startButton.disabled = true;
-      reactButton.hidden = true;
+      startButton.hidden = true;
+      reactButton.hidden = false;
       reactButton.disabled = true;
       status.textContent = "Waiting for the signal…";
       const delay = 1200 + Math.random() * 1800;
       timer = setTimeout(() => {
         root.classList.add("armed");
-        reactButton.hidden = false;
         reactButton.disabled = false;
         status.textContent = "React now!";
         startedAt = performance.now();
