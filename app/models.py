@@ -221,15 +221,24 @@ class AlertReceipt(db.Model):
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    catalog_key = db.Column(db.String(120), unique=True, nullable=True)
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.String(255), nullable=True)
     price = db.Column(db.Float, nullable=False)
     stock = db.Column(db.Integer, nullable=False, default=0)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    image_url = db.Column(db.String(255), nullable=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    base_price = db.Column(db.Float, nullable=True)
+    base_stock = db.Column(db.Integer, nullable=True)
 
     price_history = db.relationship("PriceHistory", backref="product", lazy=True)
+    order_items = db.relationship("MerchantOrderItem", backref="product", lazy=True)
 
-    __table_args__ = (CheckConstraint("price >= 0"), CheckConstraint("stock >= 0"),)
+    __table_args__ = (
+        CheckConstraint("price >= 0"),
+        CheckConstraint("stock >= 0"),
+    )
 
 
 class PriceHistory(db.Model):
@@ -237,6 +246,44 @@ class PriceHistory(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey("product.id"), nullable=False)
     price = db.Column(db.Float, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class MerchantOrder(db.Model):
+    __tablename__ = "merchant_order"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    total_price = db.Column(db.Float, nullable=False, default=0.0)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    charge_transaction_id = db.Column(db.Integer, db.ForeignKey("transaction.id"), nullable=True)
+    payout_transaction_id = db.Column(db.Integer, db.ForeignKey("transaction.id"), nullable=True)
+    refund_transaction_id = db.Column(db.Integer, db.ForeignKey("transaction.id"), nullable=True)
+
+    user = db.relationship("User", foreign_keys=[user_id], lazy=True)
+    charge_transaction = db.relationship("Transaction", foreign_keys=[charge_transaction_id], lazy=True)
+    payout_transaction = db.relationship("Transaction", foreign_keys=[payout_transaction_id], lazy=True)
+    refund_transaction = db.relationship("Transaction", foreign_keys=[refund_transaction_id], lazy=True)
+    items = db.relationship(
+        "MerchantOrderItem",
+        backref=db.backref("order", lazy=True),
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+
+
+class MerchantOrderItem(db.Model):
+    __tablename__ = "merchant_order_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("merchant_order.id"), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id"), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    unit_price = db.Column(db.Float, nullable=False)
+    subtotal = db.Column(db.Float, nullable=False)
+    pricing_snapshot = db.Column(db.JSON, nullable=True)
 
 
 class Security(db.Model):

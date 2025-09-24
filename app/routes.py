@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
+import tomllib
+
 import qrcode
 from PIL import Image
 import pillow_heif
@@ -33,6 +35,8 @@ from . import db
 from .models import (
     FutureHolding,
     FutureListing,
+    MerchantOrder,
+    MerchantOrderItem,
     OptionHolding,
     OptionListing,
     OptionType,
@@ -74,6 +78,145 @@ from .telestrations import extract_seed_prompts
 pillow_heif.register_heif_opener()
 
 bp = Blueprint("main", __name__)
+
+
+def _slugify(value: str) -> str:
+    normalized = value.strip().lower()
+    cleaned = [
+        ch if ch.isalnum() else "-"
+        for ch in normalized
+    ]
+    slug = "".join(cleaned).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug.replace("-", "_") or normalized.replace(" ", "_")
+
+
+def _stock_config_path() -> Path:
+    override = current_app.config.get("MERCHANT_STOCK_PATH")
+    if override:
+        return Path(override)
+    return Path(current_app.root_path) / "config" / "stock.toml"
+
+
+def _load_stock_catalog() -> list[dict]:
+    path = _stock_config_path()
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except FileNotFoundError:
+        return []
+    except tomllib.TOMLDecodeError as exc:
+        current_app.logger.error("Failed to parse stock file %s: %s", path, exc)
+        return []
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        current_app.logger.warning("Stock file %s has invalid items format", path)
+        return []
+    normalized_items: list[dict] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        entry = raw.copy()
+        key = entry.get("key") or entry.get("name", "")
+        if not key:
+            continue
+        entry["key"] = _slugify(str(key))
+        normalized_items.append(entry)
+    return normalized_items
+
+
+def sync_products_from_stock() -> List[Product]:
+    catalog = _load_stock_catalog()
+    dirty = False
+    for entry in catalog:
+        key = entry["key"]
+        product = Product.query.filter_by(catalog_key=key).first()
+        created = False
+        if not product:
+            product = Product(catalog_key=key)
+            db.session.add(product)
+            created = True
+            dirty = True
+
+        name = entry.get("name") or product.name or key.replace("_", " ").title()
+        if product.name != name:
+            product.name = name
+            dirty = True
+
+        description = entry.get("description")
+        if description != product.description:
+            product.description = description
+            dirty = True
+
+        image_url = entry.get("image")
+        if image_url != product.image_url:
+            product.image_url = image_url
+            dirty = True
+
+        enabled = bool(entry.get("enabled", True))
+        if product.enabled != enabled:
+            product.enabled = enabled
+            dirty = True
+
+        if "price" in entry:
+            try:
+                base_price = max(0.0, float(entry["price"]))
+            except (TypeError, ValueError):
+                base_price = None
+            if base_price is not None:
+                if product.base_price is None or abs(product.base_price - base_price) > 1e-6:
+                    product.base_price = base_price
+                    dirty = True
+                if created or abs((product.price or 0.0) - (product.base_price or 0.0)) < 1e-6:
+                    product.price = base_price
+                    product.updated_at = datetime.utcnow()
+                    dirty = True
+
+        if "stock" in entry:
+            try:
+                base_stock = max(0, int(entry["stock"]))
+            except (TypeError, ValueError):
+                base_stock = None
+            if base_stock is not None:
+                if product.base_stock is None or product.base_stock != base_stock:
+                    product.base_stock = base_stock
+                    dirty = True
+                if created:
+                    product.stock = base_stock
+                    product.updated_at = datetime.utcnow()
+                    dirty = True
+                elif base_stock > (product.stock or 0):
+                    product.stock = base_stock
+                    product.updated_at = datetime.utcnow()
+                    dirty = True
+
+    if dirty:
+        db.session.commit()
+
+    return Product.query.order_by(Product.name.asc()).all()
+
+
+def _merchant_sender() -> User:
+    if current_user.is_authenticated and current_user.is_merchant:
+        return current_user
+    candidate = (
+        User.query.filter(User.role.in_([Role.MERCHANT, Role.ADMIN]))
+        .order_by(User.role.desc())
+        .first()
+    )
+    return candidate or current_user
+
+
+def _format_order_lines(order: MerchantOrder) -> str:
+    lines = [f"Order #{order.id}"]
+    for item in order.items:
+        lines.append(
+            f"- {item.quantity} × {item.product.name} — {item.subtotal:.2f} credits"
+        )
+    lines.append("")
+    lines.append(f"Total: {order.total_price:.2f} credits")
+    return "\n".join(lines)
 
 
 def find_user_by_handle(handle: str):
@@ -2356,51 +2499,237 @@ def resolve_match(match):
     )
 
 
+@bp.route("/marketplace", methods=["GET", "POST"])
+@login_required
+def marketplace():
+    products = sync_products_from_stock()
+    product_map = {product.id: product for product in products}
+    visible_products = [product for product in products if product.enabled]
+
+    if request.method == "POST":
+        cart_raw = request.form.get("cart", "[]")
+        try:
+            cart_items = json.loads(cart_raw or "[]")
+        except json.JSONDecodeError:
+            flash("We couldn't process your cart. Please try again.", "error")
+            return redirect(url_for("main.marketplace"))
+
+        selection_counts: dict[int, int] = {}
+        for entry in cart_items:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                product_id = int(entry.get("id"))
+                quantity = int(entry.get("quantity"))
+            except (TypeError, ValueError):
+                continue
+            if quantity <= 0:
+                continue
+            selection_counts[product_id] = selection_counts.get(product_id, 0) + quantity
+
+        if not selection_counts:
+            flash("Add at least one item to your order before checking out.", "warning")
+            return redirect(url_for("main.marketplace"))
+
+        selections: list[tuple[Product, int]] = []
+        for product_id, quantity in selection_counts.items():
+            product = product_map.get(product_id)
+            if not product or not product.enabled:
+                continue
+            if product.stock < quantity:
+                flash(f"Not enough stock for {product.name}.", "error")
+                return redirect(url_for("main.marketplace"))
+            selections.append((product, quantity))
+
+        if not selections:
+            flash("Add at least one item to your order before checking out.", "warning")
+            return redirect(url_for("main.marketplace"))
+
+        total_cost = 0.0
+        pricing_breakdown: dict[int, tuple[list[float], float]] = {}
+        for product, quantity in selections:
+            inc_pct = get_price_increase_pct(product)
+            current_price = product.price
+            line_prices: list[float] = []
+            for _ in range(quantity):
+                line_prices.append(current_price)
+                if inc_pct > 0:
+                    current_price = current_price * (1 + inc_pct / 100.0)
+            subtotal = round(sum(line_prices), 2)
+            pricing_breakdown[product.id] = (line_prices, subtotal)
+            total_cost += subtotal
+
+        total_cost = round(total_cost, 2)
+        if total_cost <= 0:
+            flash("This order would not cost anything. Please try again.", "warning")
+            return redirect(url_for("main.marketplace"))
+
+        if current_user.balance < total_cost - 1e-6:
+            flash("You do not have enough credits for this order.", "error")
+            return redirect(url_for("main.marketplace"))
+
+        order = MerchantOrder(user=current_user, total_price=total_cost)
+        db.session.add(order)
+        db.session.flush()
+
+        for product, quantity in selections:
+            product.stock = max(0, (product.stock or 0) - quantity)
+            line_prices, subtotal = pricing_breakdown.get(product.id, ([], 0.0))
+            avg_price = round(subtotal / quantity, 2) if quantity else 0.0
+            item = MerchantOrderItem(
+                order=order,
+                product=product,
+                quantity=quantity,
+                unit_price=avg_price,
+                subtotal=subtotal,
+                pricing_snapshot=[round(price, 4) for price in line_prices],
+            )
+            db.session.add(item)
+            apply_dynamic_price_increase(product, quantity, commit=False)
+
+        charge_txn = record_transaction(
+            current_user,
+            -total_cost,
+            f"Marketplace order #{order.id}",
+            type_="purchase",
+            commit=False,
+        )
+        order.charge_transaction = charge_txn
+
+        sender = _merchant_sender()
+        message = "Thanks for your purchase!\n\n" + _format_order_lines(order)
+        _create_alert(
+            sender,
+            [current_user],
+            message,
+            title=f"Marketplace order #{order.id}",
+            category="order_receipt",
+            payload={"order_id": order.id, "status": "pending", "total": total_cost},
+        )
+
+        db.session.commit()
+        flash("Order placed! We'll let you know when it's ready.", "success")
+        return redirect(url_for("main.marketplace"))
+
+    return render_template("marketplace.html", products=visible_products)
+
+
 @bp.route("/merchant", methods=["GET", "POST"])
 @login_required
 def merchant_portal():
-    products = Product.query.order_by(Product.name.asc()).all()
-    selected_product = None
-    qr_data_uri = None
-    buyer_id = current_user.id
+    if not current_user.is_merchant:
+        abort(403)
+
+    products = sync_products_from_stock()
+    pending_orders = (
+        MerchantOrder.query.filter_by(status="pending")
+        .order_by(MerchantOrder.created_at.asc())
+        .all()
+    )
 
     if request.method == "POST":
         action = request.form.get("action")
+        if action in {"complete_order", "cancel_order"}:
+            try:
+                order_id = int(request.form.get("order_id", ""))
+            except (TypeError, ValueError):
+                flash("Invalid order selection.", "error")
+                return redirect(url_for("main.merchant_portal"))
+            order = MerchantOrder.query.get(order_id)
+            if not order:
+                flash("Order not found.", "error")
+                return redirect(url_for("main.merchant_portal"))
+            if order.status != "pending":
+                flash("This order has already been processed.", "info")
+                return redirect(url_for("main.merchant_portal"))
+
+            if action == "complete_order":
+                order.status = "completed"
+                order.completed_at = datetime.utcnow()
+                payout = record_transaction(
+                    current_user,
+                    order.total_price,
+                    f"Fulfilled order #{order.id}",
+                    counterparty=order.user,
+                    type_="sale",
+                    commit=False,
+                )
+                order.payout_transaction = payout
+                _create_alert(
+                    current_user,
+                    [order.user],
+                    "Your order is ready!\n\n" + _format_order_lines(order),
+                    title=f"Order #{order.id} completed",
+                    category="order_update",
+                    payload={"order_id": order.id, "status": "completed"},
+                )
+                db.session.commit()
+                flash(f"Order #{order.id} marked completed.", "success")
+            else:
+                order.status = "cancelled"
+                order.cancelled_at = datetime.utcnow()
+                for item in order.items:
+                    item.product.stock = (item.product.stock or 0) + item.quantity
+                    item.product.updated_at = datetime.utcnow()
+                refund = record_transaction(
+                    order.user,
+                    order.total_price,
+                    f"Refund for order #{order.id}",
+                    counterparty=current_user,
+                    type_="refund",
+                    commit=False,
+                )
+                order.refund_transaction = refund
+                _create_alert(
+                    current_user,
+                    [order.user],
+                    (
+                        f"Your order #{order.id} was cancelled. "
+                        f"We've refunded {order.total_price:.2f} credits."
+                    ),
+                    title=f"Order #{order.id} cancelled",
+                    category="order_update",
+                    payload={"order_id": order.id, "status": "cancelled"},
+                )
+                db.session.commit()
+                flash(f"Order #{order.id} cancelled and refunded.", "warning")
+            return redirect(url_for("main.merchant_portal"))
+
         product_id = request.form.get("product_id")
-        if action == "select" and product_id:
-            selected_product = Product.query.get(int(product_id))
-            if selected_product:
-                qr_data_uri = build_qr_for_product(selected_product, buyer_id)
-        elif action in {"update_price", "update_stock"} and product_id:
+        if action in {"update_price", "update_stock", "update_product_increase_pct"} and not product_id:
+            flash("Select a product first.", "error")
+            return redirect(url_for("main.merchant_portal"))
+
+        if action == "update_price" and product_id:
             product = Product.query.get(int(product_id))
             if not product:
                 flash("Product not found.", "error")
-            elif not current_user.is_merchant:
-                flash("Only merchants can update inventory.", "error")
             else:
-                if action == "update_price":
+                try:
                     new_price = float(request.form.get("price", product.price))
-                    update_price(product, new_price)
-                else:
-                    new_stock = int(request.form.get("stock", product.stock))
-                    product.stock = max(0, new_stock)
-                    product.updated_at = datetime.utcnow()
-                    db.session.commit()
-                    flash("Stock updated.", "success")
-                return redirect(url_for("main.merchant_portal"))
-        elif action == "add_product" and current_user.is_merchant:
-            name = request.form.get("name")
-            price = float(request.form.get("price", 0))
-            stock = int(request.form.get("stock", 0))
-            description = request.form.get("description")
-            if name:
-                product = Product(name=name, price=price, stock=stock, description=description)
-                db.session.add(product)
-                db.session.commit()
-                update_price(product, price)
-                flash("Product created.", "success")
+                except (TypeError, ValueError):
+                    flash("Provide a valid price.", "error")
+                    return redirect(url_for("main.merchant_portal"))
+                update_price(product, new_price)
             return redirect(url_for("main.merchant_portal"))
-        elif action == "update_product_increase_pct" and current_user.is_merchant and product_id:
+
+        if action == "update_stock" and product_id:
+            product = Product.query.get(int(product_id))
+            if not product:
+                flash("Product not found.", "error")
+            else:
+                try:
+                    new_stock = int(request.form.get("stock", product.stock))
+                except (TypeError, ValueError):
+                    flash("Provide a valid stock quantity.", "error")
+                    return redirect(url_for("main.merchant_portal"))
+                product.stock = max(0, new_stock)
+                product.updated_at = datetime.utcnow()
+                db.session.commit()
+                flash("Stock updated.", "success")
+            return redirect(url_for("main.merchant_portal"))
+
+        if action == "update_product_increase_pct" and product_id:
             try:
                 pct = float(request.form.get("increase_pct", ""))
                 if pct < 0:
@@ -2410,23 +2739,51 @@ def merchant_portal():
             except Exception as exc:
                 flash(f"Failed to save per-product sensitivity: {exc}", "error")
             return redirect(url_for("main.merchant_portal"))
-        else:
-            return redirect(url_for("main.merchant_portal"))
+
+        return redirect(url_for("main.merchant_portal"))
 
     return render_template(
         "merchant.html",
         products=products,
-        selected_product=selected_product,
-        qr_data_uri=qr_data_uri,
+        pending_orders=pending_orders,
     )
 
 
-def update_price(product, new_price):
+def update_price(product, new_price, *, commit: bool = True, announce: bool = True):
     product.price = max(0, new_price)
     product.updated_at = datetime.utcnow()
     db.session.add(PriceHistory(product=product, price=product.price))
-    db.session.commit()
-    flash("Price updated.", "success")
+    if commit:
+        db.session.commit()
+    if announce:
+        flash("Price updated.", "success")
+
+
+def get_price_increase_pct(product: Product) -> float:
+    try:
+        return float(
+            AppSetting.get(
+                f"product:{product.id}:increase_pct",
+                AppSetting.get("price_increase_pct", "5.0") or "5.0",
+            )
+        )
+    except Exception:
+        return 0.0
+
+
+def apply_dynamic_price_increase(product: Product, quantity: int, *, commit: bool = True):
+    if quantity <= 0:
+        if commit:
+            db.session.commit()
+        return
+    inc_pct = get_price_increase_pct(product)
+    for _ in range(quantity):
+        if inc_pct <= 0:
+            break
+        new_price = product.price * (1 + inc_pct / 100.0)
+        update_price(product, new_price, commit=False, announce=False)
+    if commit:
+        db.session.commit()
 
 
 def build_qr_for_user(user):
@@ -2492,12 +2849,9 @@ def process_sale(product_id):
             type_="sale",
             commit=False,
         )
-        # Increase price on purchase using admin-controlled sensitivity
         try:
-            # Per-product override: product:{id}:increase_pct falls back to global price_increase_pct
-            inc_pct = float(AppSetting.get(f"product:{product.id}:increase_pct", AppSetting.get("price_increase_pct", "5.0") or "5.0"))
-            new_price = product.price * (1 + inc_pct / 100.0)
-            update_price(product, new_price)
+            apply_dynamic_price_increase(product, 1, commit=False)
+            db.session.commit()
             flash("Sale completed.", "success")
         except Exception as exc:
             db.session.commit()

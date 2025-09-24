@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% block title %}Marketplace{% endblock %}
+{% block content %}
+<section class="marketplace">
+  <header class="section-header">
+    <h1>Marketplace</h1>
+    <p>Select your items and check out when you're ready.</p>
+  </header>
+  <form id="marketplace-form" method="post" class="marketplace-form">
+    <div class="product-grid">
+      {% for product in products %}
+        <article class="product-card" data-product-id="{{ product.id }}" data-price="{{ '%.2f'|format(product.price) }}">
+          {% if product.image_url %}
+            <img src="{{ product.image_url }}" alt="{{ product.name }}" class="product-image">
+          {% endif %}
+          <div class="product-body">
+            <h3 class="product-name">{{ product.name }}</h3>
+            <p class="product-price">{{ '%.2f'|format(product.price) }} credits</p>
+            {% if product.description %}
+              <p class="product-description">{{ product.description }}</p>
+            {% endif %}
+            <p class="product-stock">In stock: {{ product.stock }}</p>
+            <label class="quantity-control">
+              Quantity
+              <input type="number" class="qty-input" min="0" value="0" inputmode="numeric">
+            </label>
+          </div>
+        </article>
+      {% else %}
+        <p class="empty-state">Nothing is available right now. Check back later.</p>
+      {% endfor %}
+    </div>
+    <input type="hidden" name="cart" id="cart-data">
+    <div class="checkout-bar">
+      <button type="submit" id="checkout-button" class="checkout-button" disabled>
+        <span class="checkout-total" id="checkout-total">0.00</span>
+        <span class="checkout-count-wrapper">(<span id="checkout-count">0</span>)</span>
+        Check Out
+      </button>
+    </div>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('marketplace-form');
+    const cards = Array.from(document.querySelectorAll('.product-card'));
+    const cartField = document.getElementById('cart-data');
+    const totalSpan = document.getElementById('checkout-total');
+    const countSpan = document.getElementById('checkout-count');
+    const checkoutButton = document.getElementById('checkout-button');
+
+    function refreshCartSummary() {
+      let total = 0;
+      let count = 0;
+      const items = [];
+      for (const card of cards) {
+        const input = card.querySelector('.qty-input');
+        const quantity = parseInt(input.value, 10) || 0;
+        if (quantity > 0) {
+          const price = parseFloat(card.dataset.price);
+          total += price * quantity;
+          count += quantity;
+          items.push({ id: parseInt(card.dataset.productId, 10), quantity });
+          card.classList.add('selected');
+        } else {
+          card.classList.remove('selected');
+        }
+      }
+      totalSpan.textContent = total.toFixed(2);
+      countSpan.textContent = count;
+      cartField.value = JSON.stringify(items);
+      checkoutButton.disabled = items.length === 0;
+    }
+
+    cards.forEach((card) => {
+      const input = card.querySelector('.qty-input');
+      input.addEventListener('input', refreshCartSummary);
+      input.addEventListener('change', refreshCartSummary);
+    });
+
+    form.addEventListener('submit', (event) => {
+      refreshCartSummary();
+      if (!cartField.value || cartField.value === '[]') {
+        event.preventDefault();
+      }
+    });
+
+    refreshCartSummary();
+  });
+</script>
+{% endblock %}

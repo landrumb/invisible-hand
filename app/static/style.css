@@ -1663,3 +1663,205 @@ button.warning:hover {
 [data-reaction-game][data-outcome="error"] {
   box-shadow: 0 0 0 2px rgba(255, 79, 100, 0.45);
 }
+
+.marketplace .section-header,
+.merchant-portal .section-header,
+.orders-panel h2,
+.inventory-panel h2 {
+  margin-bottom: 1rem;
+}
+
+.product-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.product-card {
+  background: var(--panel);
+  border: 1px solid rgba(26, 255, 213, 0.2);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.product-card.selected,
+.product-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+}
+
+.product-image {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+}
+
+.product-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.product-name {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.product-price {
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0;
+}
+
+.product-description {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.product-stock {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.quantity-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.qty-input {
+  background: transparent;
+  border: 1px solid rgba(26, 255, 213, 0.3);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem;
+}
+
+.checkout-bar {
+  position: sticky;
+  bottom: 1rem;
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.checkout-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 1.6rem;
+  background: var(--accent);
+  color: #001217;
+  border-color: var(--accent);
+  font-weight: 700;
+  border-radius: 999px;
+}
+
+.checkout-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.checkout-total {
+  font-size: 1.1rem;
+}
+
+.merchant-portal .orders-panel,
+.merchant-portal .inventory-panel {
+  margin-top: 2rem;
+}
+
+.order-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.order-card {
+  background: var(--panel);
+  border: 1px solid rgba(26, 255, 213, 0.25);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.order-header h3 {
+  margin: 0;
+}
+
+.order-header p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.order-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.order-items li {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
+}
+
+.order-total {
+  font-weight: 700;
+  margin: 0;
+}
+
+.order-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.inventory-overview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+}
+
+.inventory-overview th,
+.inventory-overview td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(26, 255, 213, 0.1);
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-on {
+  background: rgba(26, 255, 213, 0.15);
+  color: var(--accent);
+}
+
+.status-off {
+  background: rgba(255, 79, 100, 0.15);
+  color: var(--danger);
+}
+
+.inventory-actions {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
