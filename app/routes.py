@@ -2725,9 +2725,16 @@ def merchant_portal():
             if action == "complete_order":
                 order.status = "completed"
                 order.completed_at = datetime.utcnow()
+                payout_amount = order.total_price
+                if order.charge_transaction is not None:
+                    payout_amount = abs(order.charge_transaction.amount or 0.0)
+                    if payout_amount <= 0:
+                        payout_amount = order.total_price
+                    if order.charge_transaction.counterparty is None:
+                        order.charge_transaction.counterparty = current_user
                 payout = record_transaction(
                     current_user,
-                    order.total_price,
+                    payout_amount,
                     f"Fulfilled order #{order.id}",
                     counterparty=order.user,
                     type_="sale",
