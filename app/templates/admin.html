@@ -29,7 +29,7 @@
     <ul class="list" id="txn-feed">
       {% for txn in transactions %}
         <li data-id="{{ txn.id }}">
-          <span>{{ format_nyc_datetime(txn.created_at, '%H:%M:%S') }}</span>
+          <span>{{ format_nyc_datetime(txn.created_at, '%I:%M:%S %p') }}</span>
           <span>{{ txn.user.name }} — {{ txn.description }}</span>
           <span class="amount {{ 'positive' if txn.amount >= 0 else 'negative' }}">{{ '%.2f'|format(txn.amount) }}</span>
         </li>
@@ -44,8 +44,8 @@
     {% set status = casino_status or {} %}
     <ul class="list">
       <li>Pending profit: {{ '%.2f'|format(status.get('pending_profit', 0.0) or 0.0) }} credits</li>
-      <li>Last publication: {{ format_nyc_datetime(status.get('last_publish_at'), '%Y-%m-%d %H:%M:%S') if status.get('last_publish_at') else 'Never' }}</li>
-      <li>Next scheduled: {{ format_nyc_datetime(status.get('next_publish_at'), '%Y-%m-%d %H:%M:%S') if status.get('next_publish_at') else 'Pending' }}</li>
+      <li>Last publication: {{ format_nyc_datetime(status.get('last_publish_at'), '%Y-%m-%d %I:%M:%S %p') if status.get('last_publish_at') else 'Never' }}</li>
+      <li>Next scheduled: {{ format_nyc_datetime(status.get('next_publish_at'), '%Y-%m-%d %I:%M:%S %p') if status.get('next_publish_at') else 'Pending' }}</li>
       <li>Last summary: {{ status.get('last_summary') or 'No publication yet.' }}</li>
     </ul>
     <form method="post" action="{{ url_for('main.admin_casino_publish') }}" class="form">
@@ -193,7 +193,7 @@
     <ul class="list">
       {% for alert in alerts %}
         <li>
-          <span>{{ format_nyc_datetime(alert.created_at, '%H:%M:%S') }}</span>
+          <span>{{ format_nyc_datetime(alert.created_at, '%I:%M:%S %p') }}</span>
           <span>{{ alert.creator.name if alert.creator else 'Admin' }} — {{ alert.title or alert.message }}</span>
         </li>
       {% else %}

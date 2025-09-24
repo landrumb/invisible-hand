@@ -62,7 +62,7 @@
     <ul class="list">
       {% for txn in transactions %}
         <li>
-          <span>{{ format_nyc_datetime(txn.created_at, '%H:%M:%S') }}</span>
+          <span>{{ format_nyc_datetime(txn.created_at, '%I:%M:%S %p') }}</span>
           <span>{{ txn.description }}</span>
           <span class="amount {{ 'positive' if txn.amount >= 0 else 'negative' }}">{{ '%.2f'|format(txn.amount) }}</span>
         </li>

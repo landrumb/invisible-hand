@@ -16,7 +16,7 @@
             <header class="order-header">
               <h3>Order #{{ order.id }}</h3>
               <p>
-                {{ order.user.name }} · {{ format_nyc_datetime(order.created_at, '%b %d, %Y %H:%M') }}
+                {{ order.user.name }} · {{ format_nyc_datetime(order.created_at, '%b %d, %Y %I:%M %p') }}
               </p>
             </header>
             <ul class="order-items">

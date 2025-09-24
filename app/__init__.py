@@ -41,7 +41,7 @@ def nyc_to_utc(nyc_dt):
     return nyc_dt.astimezone(ZoneInfo("UTC"))
 
 
-def format_nyc_datetime(dt, format_str="%Y-%m-%d %H:%M"):
+def format_nyc_datetime(dt, format_str="%Y-%m-%d %I:%M %p"):
     """Format datetime in NYC timezone."""
     if dt is None:
         return "—"
