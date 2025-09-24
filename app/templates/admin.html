@@ -55,30 +55,62 @@
   </article>
 
   <article class="panel">
-    <h2>Pricing & Reward Sensitivities</h2>
+    <h2>Economy Controls</h2>
     <form method="post" action="{{ url_for('main.update_pricing_settings') }}" class="form">
-      <label>Increase on purchase (%)
-        <input type="number" name="price_increase_pct" step="0.1" min="0" value="{{ price_increase_pct or '5.0' }}">
-      </label>
-      <div class="grid">
-        <div>
-          <h3>Single Player</h3>
-          <label>Decrease rewards after payout (%)
-            <input type="number" name="sp_dec" step="0.1" min="0" value="{{ sp_dec or '5.0' }}">
+      <fieldset class="fieldset">
+        <legend>Marketplace pricing</legend>
+        <label>Purchase impact factor
+          <input type="number" name="purchase_impact" step="0.0001" min="0" value="{{ pricing_cfg.get('purchase_impact', 0.0) }}">
+        </label>
+        <label>Cross-product cooling factor
+          <input type="number" name="cross_cooling" step="0.0001" min="0" value="{{ pricing_cfg.get('cross_cooling', 0.0) }}">
+        </label>
+        <label>Default product liquidity
+          <input type="number" name="pricing_liquidity" step="0.1" min="0" value="{{ pricing_cfg.get('default_liquidity', 0.0) }}">
+        </label>
+        <div class="grid">
+          <label>Minimum price
+            <input type="number" name="min_price" step="0.01" min="0" value="{{ pricing_cfg.get('min_price', 0.0) }}">
           </label>
-          <p class="note">Current multiplier: {{ sp_mult or '1.0' }}</p>
-        </div>
-        <div>
-          <h3>Prisoner's Dilemma</h3>
-          <label>Decrease rewards after payout (%)
-            <input type="number" name="pd_dec" step="0.1" min="0" value="{{ pd_dec or '5.0' }}">
+          <label>Maximum price
+            <input type="number" name="max_price" step="0.01" min="0" value="{{ pricing_cfg.get('max_price', 0.0) }}">
           </label>
-          <p class="note">Current multiplier: {{ pd_mult or '1.0' }}</p>
         </div>
-      </div>
-      <button class="button" type="submit">Save</button>
+      </fieldset>
+      <fieldset class="fieldset">
+        <legend>Game payouts</legend>
+        <label>Payout impact factor
+          <input type="number" name="payout_impact" step="0.0001" min="0" value="{{ payouts_cfg.get('payout_impact', 0.0) }}">
+        </label>
+        <label>Cross-game recovery factor
+          <input type="number" name="cross_recovery" step="0.0001" min="0" value="{{ payouts_cfg.get('cross_recovery', 0.0) }}">
+        </label>
+        <label>Default payout liquidity
+          <input type="number" name="payout_liquidity" step="0.1" min="0" value="{{ payouts_cfg.get('default_liquidity', 0.0) }}">
+        </label>
+        <div class="grid">
+          <label>Minimum multiplier
+            <input type="number" name="min_multiplier" step="0.01" min="0" value="{{ payouts_cfg.get('min_multiplier', 0.0) }}">
+          </label>
+          <label>Maximum multiplier
+            <input type="number" name="max_multiplier" step="0.01" min="0" value="{{ payouts_cfg.get('max_multiplier', 0.0) }}">
+          </label>
+        </div>
+        <label>Baseline multiplier
+          <input type="number" name="baseline_multiplier" step="0.01" min="0" value="{{ payouts_cfg.get('baseline_multiplier', 1.0) }}">
+        </label>
+      </fieldset>
+      <button class="button" type="submit">Save economy settings</button>
     </form>
-    <p class="note">Purchase increases item price; game wins reduce future rewards via per-game multipliers.</p>
+    <p class="note">Purchases and payouts automatically rebalance according to these parameters.</p>
+    {% if game_multipliers %}
+      <h3>Live payout multipliers</h3>
+      <ul class="list">
+        {% for key, value in game_multipliers.items() %}
+          <li><strong>{{ key }}</strong>: {{ '%.3f'|format(value) }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
   </article>
 
   <article class="panel">
@@ -207,7 +239,7 @@
   <article class="panel">
     <h2>Per-Product Sensitivities</h2>
     <form method="post" action="{{ url_for('main.merchant_portal') }}" class="form">
-      <input type="hidden" name="action" value="update_product_increase_pct">
+      <input type="hidden" name="action" value="update_product_liquidity">
       <label>Product
         <select name="product_id" required>
           {% for product in products %}
@@ -215,8 +247,8 @@
           {% endfor %}
         </select>
       </label>
-      <label>Per-product price increase (%)
-        <input type="number" step="0.1" name="increase_pct" min="0">
+      <label>Liquidity override
+        <input type="number" step="0.1" name="liquidity" min="0">
       </label>
       <button class="button" type="submit">Save</button>
     </form>

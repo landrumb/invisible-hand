@@ -98,6 +98,7 @@ def create_app(test_config=None):
     from .securities import init_market
     from .casino import init_casino
     from .games import init_games
+    from .economy import init_economy
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
@@ -106,6 +107,7 @@ def create_app(test_config=None):
     init_market(app)
     init_casino(app)
     init_games(app)
+    init_economy(app)
 
     @app.context_processor
     def inject_now():

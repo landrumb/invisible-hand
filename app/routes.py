@@ -33,6 +33,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from . import db, get_nyc_now, utc_to_nyc, nyc_to_utc, format_nyc_datetime
+from .economy import PurchaseQuoteContext, get_economy_manager
 from .models import (
     FutureHolding,
     FutureListing,
@@ -262,29 +263,27 @@ def record_transaction(user, amount, description, counterparty=None, type_="game
         type=type_,
     )
     db.session.add(txn)
-    # If this is a positive game reward (player earned credits), reduce future game rewards via per-game multiplier
-    if type_ == "game" and amount > 0:
-        try:
-            game_key = AppSetting.get("current_game_context", None)
-            if game_key:
-                dec_pct = float(AppSetting.get(f"game:{game_key}:decrease_pct", AppSetting.get("game_reward_decrease_pct", "5.0") or "5.0"))
-                current_mult = float(AppSetting.get(f"game:{game_key}:multiplier", "1.0") or "1.0")
-                new_mult = max(0.0, current_mult * (1.0 - dec_pct / 100.0))
-                AppSetting.set(f"game:{game_key}:multiplier", f"{new_mult}")
-        except Exception:
-            pass
+    if type_ in {"game", "casino"} and amount > 0:
+        manager = get_economy_manager()
+        if manager:
+            try:
+                manager.record_game_payout(amount)
+            except Exception:
+                current_app.logger.exception("Failed to register game payout in economy manager")
     if commit:
         db.session.commit()
     return txn
 
 
 def _activate_game_context(game_key: str) -> float:
-    AppSetting.set("current_game_context", game_key)
+    manager = get_economy_manager()
+    if not manager:
+        return 1.0
     try:
-        multiplier = float(AppSetting.get(f"game:{game_key}:multiplier", "1.0") or "1.0")
+        return manager.activate_game_context(game_key)
     except Exception:
-        multiplier = 1.0
-    return multiplier if multiplier >= 0 else 0.0
+        current_app.logger.exception("Failed to activate game context for %s", game_key)
+        return 1.0
 
 
 def _create_alert(creator, recipients: List[User], message: str, *, title: str | None = None, category: str = "message", payload: dict | None = None, vote: ShareholderVote | None = None):
@@ -999,12 +998,7 @@ def trade_future():
 @login_required
 def single_player():
     base_reward = 5.0
-    # Use per-game multiplier keyed by 'single_player'
-    AppSetting.set("current_game_context", "single_player")
-    try:
-        mult = float(AppSetting.get("game:single_player:multiplier", "1.0") or "1.0")
-    except Exception:
-        mult = 1.0
+    mult = _activate_game_context("single_player")
     reward = round(base_reward * mult, 2)
     if request.method == "POST":
         record_transaction(current_user, reward, "Won the solo clicker game")
@@ -2257,7 +2251,7 @@ def telestrations_upvote(entry_id: int):
 @login_required
 def casino():
     manager = get_casino_manager()
-    AppSetting.set("current_game_context", "casino")
+    _activate_game_context("casino")
     return render_template(
         "casino.html",
         slots=manager.get_slots(),
@@ -2268,7 +2262,7 @@ def casino():
 @bp.route("/casino/slot", methods=["POST"])
 @login_required
 def play_slot():
-    AppSetting.set("current_game_context", "casino")
+    _activate_game_context("casino")
     wants_json = request.is_json or request.accept_mimetypes.best == "application/json"
 
     if request.is_json:
@@ -2402,7 +2396,7 @@ def _format_line_label(win: SlotLineWin) -> str:
 @bp.route("/casino/blackjack", methods=["POST"])
 @login_required
 def play_blackjack():
-    AppSetting.set("current_game_context", "casino")
+    _activate_game_context("casino")
     wager = request.form.get("wager", type=float)
     if wager is None:
         flash("Enter a wager for blackjack.", "error")
@@ -2551,12 +2545,7 @@ def submit_choice(match, user, choice):
 
 def resolve_match(match):
     payoff = PAYOFFS[(match.player1_choice, match.player2_choice)]
-    # Use per-game multiplier keyed by 'prisoners'
-    AppSetting.set("current_game_context", "prisoners")
-    try:
-        mult = float(AppSetting.get("game:prisoners:multiplier", "1.0") or "1.0")
-    except Exception:
-        mult = 1.0
+    mult = _activate_game_context("prisoners")
     # Scale only positive rewards by multiplier; penalties remain unchanged
     p1_amount = payoff[0] * mult if payoff[0] > 0 else payoff[0]
     p2_amount = payoff[1] * mult if payoff[1] > 0 else payoff[1]
@@ -2579,6 +2568,25 @@ def marketplace():
     products = sync_products_from_stock()
     product_map = {product.id: product for product in products}
     visible_products = [product for product in products if product.enabled]
+    economy_manager = get_economy_manager()
+    pricing_context: dict[int, PurchaseQuoteContext] = {}
+    for product in visible_products:
+        quote_ctx: PurchaseQuoteContext | None = None
+        if economy_manager:
+            try:
+                quote_ctx = economy_manager.get_purchase_quote_context(product)
+            except Exception:
+                current_app.logger.exception("Failed to compute purchase quote context", extra={"product_id": product.id})
+        if quote_ctx is None:
+            base_price = round(max(product.price or 0.0, 0.0), 4)
+            max_price = base_price if base_price > 0 else 0.0
+            quote_ctx = PurchaseQuoteContext(
+                first_price=base_price,
+                step_factor=1.0,
+                min_price=0.0,
+                max_price=max(base_price, max_price),
+            )
+        pricing_context[product.id] = quote_ctx
 
     if request.method == "POST":
         cart_raw = request.form.get("cart", "[]")
@@ -2622,13 +2630,10 @@ def marketplace():
         total_cost = 0.0
         pricing_breakdown: dict[int, tuple[list[float], float]] = {}
         for product, quantity in selections:
-            inc_pct = get_price_increase_pct(product)
-            current_price = product.price
-            line_prices: list[float] = []
-            for _ in range(quantity):
-                line_prices.append(current_price)
-                if inc_pct > 0:
-                    current_price = current_price * (1 + inc_pct / 100.0)
+            if economy_manager:
+                line_prices = economy_manager.quote_purchase_prices(product, quantity)
+            else:
+                line_prices = [product.price for _ in range(quantity)]
             subtotal = round(sum(line_prices), 2)
             pricing_breakdown[product.id] = (line_prices, subtotal)
             total_cost += subtotal
@@ -2659,7 +2664,7 @@ def marketplace():
                 pricing_snapshot=[round(price, 4) for price in line_prices],
             )
             db.session.add(item)
-            apply_dynamic_price_increase(product, quantity, commit=False)
+            apply_economy_purchase_adjustments(product, quantity, commit=False)
 
         charge_txn = record_transaction(
             current_user,
@@ -2685,7 +2690,7 @@ def marketplace():
         flash("Order placed! We'll let you know when it's ready.", "success")
         return redirect(url_for("main.marketplace"))
 
-    return render_template("marketplace.html", products=visible_products)
+    return render_template("marketplace.html", products=visible_products, pricing_context=pricing_context)
 
 
 @bp.route("/merchant", methods=["GET", "POST"])
@@ -2720,9 +2725,16 @@ def merchant_portal():
             if action == "complete_order":
                 order.status = "completed"
                 order.completed_at = datetime.utcnow()
+                payout_amount = order.total_price
+                if order.charge_transaction is not None:
+                    payout_amount = abs(order.charge_transaction.amount or 0.0)
+                    if payout_amount <= 0:
+                        payout_amount = order.total_price
+                    if order.charge_transaction.counterparty is None:
+                        order.charge_transaction.counterparty = current_user
                 payout = record_transaction(
                     current_user,
-                    order.total_price,
+                    payout_amount,
                     f"Fulfilled order #{order.id}",
                     counterparty=order.user,
                     type_="sale",
@@ -2742,9 +2754,19 @@ def merchant_portal():
             else:
                 order.status = "cancelled"
                 order.cancelled_at = datetime.utcnow()
+                sale_quantities: dict[int, tuple[Product, int]] = {}
                 for item in order.items:
                     item.product.stock = (item.product.stock or 0) + item.quantity
                     item.product.updated_at = datetime.utcnow()
+                    key = int(item.product.id)
+                    existing = sale_quantities.get(key)
+                    if existing:
+                        sale_quantities[key] = (item.product, existing[1] + item.quantity)
+                    else:
+                        sale_quantities[key] = (item.product, item.quantity)
+                for product, quantity in sale_quantities.values():
+                    apply_economy_sale_adjustments(product, quantity, commit=False)
+                order.economy_adjustments = None
                 refund = record_transaction(
                     order.user,
                     order.total_price,
@@ -2770,7 +2792,7 @@ def merchant_portal():
             return redirect(url_for("main.merchant_portal"))
 
         product_id = request.form.get("product_id")
-        if action in {"update_price", "update_stock", "update_product_increase_pct"} and not product_id:
+        if action in {"update_price", "update_stock", "update_product_liquidity"} and not product_id:
             flash("Select a product first.", "error")
             return redirect(url_for("main.merchant_portal"))
 
@@ -2803,15 +2825,25 @@ def merchant_portal():
                 flash("Stock updated.", "success")
             return redirect(url_for("main.merchant_portal"))
 
-        if action == "update_product_increase_pct" and product_id:
+        if action == "update_product_liquidity" and product_id:
+            manager = get_economy_manager()
+            if not manager:
+                flash("Economy manager unavailable.", "error")
+                return redirect(url_for("main.merchant_portal"))
             try:
-                pct = float(request.form.get("increase_pct", ""))
-                if pct < 0:
-                    raise ValueError("Percentage must be non-negative")
-                AppSetting.set(f"product:{int(product_id)}:increase_pct", str(pct))
-                flash("Per-product sensitivity saved.", "success")
+                raw_liquidity = request.form.get("liquidity", "")
+                liquidity_value = float(raw_liquidity) if raw_liquidity != "" else None
+                config = manager.get_config()
+                overrides = dict(config.get("pricing", {}).get("liquidity_overrides", {}))
+                key = str(int(product_id))
+                if liquidity_value is None or liquidity_value <= 0:
+                    overrides.pop(key, None)
+                else:
+                    overrides[key] = max(0.0, liquidity_value)
+                manager.update_config(pricing={"liquidity_overrides": overrides})
+                flash("Liquidity override saved.", "success")
             except Exception as exc:
-                flash(f"Failed to save per-product sensitivity: {exc}", "error")
+                flash(f"Failed to save liquidity override: {exc}", "error")
             return redirect(url_for("main.merchant_portal"))
 
         return redirect(url_for("main.merchant_portal"))
@@ -2833,31 +2865,36 @@ def update_price(product, new_price, *, commit: bool = True, announce: bool = Tr
         flash("Price updated.", "success")
 
 
-def get_price_increase_pct(product: Product) -> float:
-    try:
-        return float(
-            AppSetting.get(
-                f"product:{product.id}:increase_pct",
-                AppSetting.get("price_increase_pct", "5.0") or "5.0",
-            )
-        )
-    except Exception:
-        return 0.0
-
-
-def apply_dynamic_price_increase(product: Product, quantity: int, *, commit: bool = True):
-    if quantity <= 0:
+def apply_economy_purchase_adjustments(product: Product, quantity: int, *, commit: bool = True):
+    manager = get_economy_manager()
+    if not manager or quantity <= 0:
         if commit:
             db.session.commit()
-        return
-    inc_pct = get_price_increase_pct(product)
-    for _ in range(quantity):
-        if inc_pct <= 0:
-            break
-        new_price = product.price * (1 + inc_pct / 100.0)
-        update_price(product, new_price, commit=False, announce=False)
+        return []
+    try:
+        adjustments = manager.apply_purchase(product, quantity)
+    except Exception:
+        current_app.logger.exception("Failed to apply purchase adjustment via economy manager")
+        adjustments = []
     if commit:
         db.session.commit()
+    return adjustments
+
+
+def apply_economy_sale_adjustments(product: Product, quantity: int, *, commit: bool = True):
+    manager = get_economy_manager()
+    if not manager or quantity <= 0:
+        if commit:
+            db.session.commit()
+        return []
+    try:
+        adjustments = manager.apply_sale(product, quantity)
+    except Exception:
+        current_app.logger.exception("Failed to apply sale adjustment via economy manager")
+        adjustments = []
+    if commit:
+        db.session.commit()
+    return adjustments
 
 
 def build_qr_for_user(user):
@@ -2924,7 +2961,7 @@ def process_sale(product_id):
             commit=False,
         )
         try:
-            apply_dynamic_price_increase(product, 1, commit=False)
+            apply_economy_purchase_adjustments(product, 1, commit=False)
             db.session.commit()
             flash("Sale completed.", "success")
         except Exception as exc:
@@ -2962,12 +2999,18 @@ def admin_dashboard():
         ShareholderVote.query.order_by(ShareholderVote.created_at.desc()).limit(5).all()
     )
     stats = build_price_stats(products)
-    default_increase = AppSetting.get("price_increase_pct", "5.0")
-    # Defaults for per-game settings
-    sp_dec = AppSetting.get("game:single_player:decrease_pct", AppSetting.get("game_reward_decrease_pct", "5.0"))
-    sp_mult = AppSetting.get("game:single_player:multiplier", "1.0")
-    pd_dec = AppSetting.get("game:prisoners:decrease_pct", AppSetting.get("game_reward_decrease_pct", "5.0"))
-    pd_mult = AppSetting.get("game:prisoners:multiplier", "1.0")
+    economy_manager = get_economy_manager()
+    pricing_cfg: dict[str, float] = {}
+    payouts_cfg: dict[str, float] = {}
+    game_multipliers: dict[str, float] = {}
+    if economy_manager:
+        try:
+            config = economy_manager.get_config()
+            pricing_cfg = config.get("pricing", {}) or {}
+            payouts_cfg = config.get("payouts", {}) or {}
+            game_multipliers = economy_manager.get_game_multipliers()
+        except Exception:
+            current_app.logger.exception("Failed to load economy configuration")
     casino_manager = get_casino_manager()
     casino_status = casino_manager.get_status()
 
@@ -2990,11 +3033,9 @@ def admin_dashboard():
         stats=stats,
         users=users,
         securities=securities,
-        price_increase_pct=default_increase,
-        sp_dec=sp_dec,
-        sp_mult=sp_mult,
-        pd_dec=pd_dec,
-        pd_mult=pd_mult,
+        pricing_cfg=pricing_cfg,
+        payouts_cfg=payouts_cfg,
+        game_multipliers=game_multipliers,
         casino_status=casino_status,
         alerts=recent_alerts,
         open_votes=open_votes,
@@ -3330,16 +3371,44 @@ def build_price_stats(products):
 def update_pricing_settings():
     if not current_user.is_admin:
         abort(403)
+    manager = get_economy_manager()
+    if not manager:
+        flash("Economy manager unavailable.", "error")
+        return redirect(url_for("main.admin_dashboard"))
     try:
-        inc = float(request.form.get("price_increase_pct", "5"))
-        sp_dec = float(request.form.get("sp_dec", "5"))
-        pd_dec = float(request.form.get("pd_dec", "5"))
-        if inc < 0 or sp_dec < 0 or pd_dec < 0:
-            raise ValueError("Sensitivities must be non-negative")
-        AppSetting.set("price_increase_pct", str(inc))
-        AppSetting.set("game:single_player:decrease_pct", str(sp_dec))
-        AppSetting.set("game:prisoners:decrease_pct", str(pd_dec))
-        flash("Sensitivities updated.", "success")
+        purchase_impact = max(0.0, float(request.form.get("purchase_impact", "0")))
+        cross_cooling = max(0.0, float(request.form.get("cross_cooling", "0")))
+        pricing_liquidity = max(0.0, float(request.form.get("pricing_liquidity", "0")))
+        min_price = max(0.0, float(request.form.get("min_price", "0")))
+        max_price = max(0.0, float(request.form.get("max_price", "0")))
+        payout_impact = max(0.0, float(request.form.get("payout_impact", "0")))
+        cross_recovery = max(0.0, float(request.form.get("cross_recovery", "0")))
+        payout_liquidity = max(0.0, float(request.form.get("payout_liquidity", "0")))
+        min_multiplier = max(0.0, float(request.form.get("min_multiplier", "0")))
+        max_multiplier = max(0.0, float(request.form.get("max_multiplier", "0")))
+        baseline_multiplier = max(0.0, float(request.form.get("baseline_multiplier", "1")))
+        if max_price and min_price and max_price < min_price:
+            raise ValueError("Maximum price must be greater than or equal to minimum price")
+        if max_multiplier and min_multiplier and max_multiplier < min_multiplier:
+            raise ValueError("Maximum multiplier must be greater than or equal to minimum multiplier")
+        manager.update_config(
+            pricing={
+                "purchase_impact": purchase_impact,
+                "cross_cooling": cross_cooling,
+                "default_liquidity": pricing_liquidity,
+                "min_price": min_price,
+                "max_price": max_price,
+            },
+            payouts={
+                "payout_impact": payout_impact,
+                "cross_recovery": cross_recovery,
+                "default_liquidity": payout_liquidity,
+                "min_multiplier": min_multiplier,
+                "max_multiplier": max_multiplier,
+                "baseline_multiplier": baseline_multiplier,
+            },
+        )
+        flash("Economy settings updated.", "success")
     except Exception as exc:
         flash(f"Failed to update settings: {exc}", "error")
     return redirect(url_for("main.admin_dashboard"))

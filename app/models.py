@@ -261,6 +261,7 @@ class MerchantOrder(db.Model):
     charge_transaction_id = db.Column(db.Integer, db.ForeignKey("transaction.id"), nullable=True)
     payout_transaction_id = db.Column(db.Integer, db.ForeignKey("transaction.id"), nullable=True)
     refund_transaction_id = db.Column(db.Integer, db.ForeignKey("transaction.id"), nullable=True)
+    economy_adjustments = db.Column(db.JSON, nullable=True)
 
     user = db.relationship("User", foreign_keys=[user_id], lazy=True)
     charge_transaction = db.relationship("Transaction", foreign_keys=[charge_transaction_id], lazy=True)
