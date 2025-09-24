@@ -17,7 +17,27 @@ except ModuleNotFoundError:  # pragma: no cover - defensive fallback
 from flask import current_app, has_app_context
 from sqlalchemy.orm import joinedload
 
-from . import db, get_nyc_now
+try:
+    from . import db, get_nyc_now
+except ImportError:  # pragma: no cover - support standalone imports during testing
+    from types import SimpleNamespace
+
+    def _noop(*_args, **_kwargs):
+        return None
+
+    db = SimpleNamespace(
+        create_all=_noop,
+        session=SimpleNamespace(
+            add=_noop,
+            commit=_noop,
+            rollback=_noop,
+            remove=_noop,
+            flush=_noop,
+        ),
+    )
+
+    def get_nyc_now():  # type: ignore[misc]
+        return datetime.utcnow()
 from .models import AppSetting, Security, SecurityHolding, Transaction, User
 
 

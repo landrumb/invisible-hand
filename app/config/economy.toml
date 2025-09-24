@@ -1,0 +1,15 @@
+[pricing]
+purchase_impact = 0.0125
+cross_cooling = 0.0015
+default_liquidity = 100.0
+min_price = 0.1
+max_price = 10000.0
+
+[payouts]
+payout_impact = 0.008
+cross_recovery = 0.001
+default_liquidity = 8.0
+min_multiplier = 0.05
+max_multiplier = 5.0
+baseline_multiplier = 1.0
+tracked_games = ["single_player", "prisoners"]
