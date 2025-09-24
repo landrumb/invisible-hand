@@ -59,6 +59,7 @@
   <footer class="app-footer">
     Landrum et al. · {{ now.year }}
   </footer>
+  <script defer src="{{ url_for('static', filename='player-selector.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
