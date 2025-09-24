@@ -1,96 +1,138 @@
 {% extends 'base.html' %}
 {% block title %}Merchant Portal{% endblock %}
 {% block content %}
-<section class="grid">
-  <article class="panel">
-    <h2>Products</h2>
-    <ul class="list">
-      {% for product in products %}
-        <li>
-          <form method="post" class="inline-form">
-            <input type="hidden" name="product_id" value="{{ product.id }}">
-            <button class="link" name="action" value="select">{{ product.name }}</button>
-            <span class="amount">{{ '%.2f'|format(product.price) }}</span>
-            <span class="note">Stock: {{ product.stock }}</span>
-          </form>
-        </li>
-      {% else %}
-        <li>No products yet.</li>
-      {% endfor %}
-    </ul>
-  </article>
+<section class="merchant-portal">
+  <header class="section-header">
+    <h1>Merchant Portal</h1>
+    <p>Review orders and tune your marketplace inventory.</p>
+  </header>
 
-  <article class="panel">
-    <h2>Create product</h2>
-    {% if current_user.is_merchant %}
-      <form method="post" class="form">
-        <input type="hidden" name="action" value="add_product">
-        <label>Name<input type="text" name="name" required></label>
-        <label>Description<input type="text" name="description"></label>
-        <label>Price<input type="number" step="0.01" name="price" required></label>
-        <label>Stock<input type="number" name="stock" min="0" value="0"></label>
-        <button class="button" type="submit">Add product</button>
-      </form>
+  <section class="orders-panel">
+    <h2>Pending orders</h2>
+    {% if pending_orders %}
+      <div class="order-grid">
+        {% for order in pending_orders %}
+          <article class="order-card">
+            <header class="order-header">
+              <h3>Order #{{ order.id }}</h3>
+              <p>
+                {{ order.user.name }} · {{ order.created_at.strftime('%b %d, %Y %H:%M') }}
+              </p>
+            </header>
+            <ul class="order-items">
+              {% for item in order.items %}
+                <li>
+                  <span>{{ item.quantity }} × {{ item.product.name }}</span>
+                  <span>{{ '%.2f'|format(item.subtotal) }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+            <p class="order-total">Total: {{ '%.2f'|format(order.total_price) }} credits</p>
+            <div class="order-actions">
+              <form method="post">
+                <input type="hidden" name="order_id" value="{{ order.id }}">
+                <button class="button" name="action" value="complete_order">Mark complete</button>
+              </form>
+              <form method="post" onsubmit="return confirm('Cancel this order and issue a refund?');">
+                <input type="hidden" name="order_id" value="{{ order.id }}">
+                <button class="button danger" name="action" value="cancel_order">Cancel</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
     {% else %}
-      <p>Only merchants can add products.</p>
+      <p class="empty-state">No orders are waiting right now.</p>
     {% endif %}
-  </article>
+  </section>
 
-  <article class="panel">
-    <h2>QR Checkout</h2>
-    {% if selected_product %}
-      <p>{{ selected_product.name }} — {{ '%.2f'|format(selected_product.price) }} credits</p>
-      <img class="qr" src="{{ qr_data_uri }}" alt="QR code for {{ selected_product.name }}">
-      {% if current_user.is_merchant %}
-        <a class="button" href="{{ url_for('main.process_sale', product_id=selected_product.id, buyer_id=current_user.id) }}">Process self-purchase</a>
-      {% endif %}
-    {% else %}
-      <p>Select a product to generate a QR code.</p>
-    {% endif %}
-  </article>
-
-  {% if current_user.is_merchant %}
-  <article class="panel">
-    <h2>Inventory adjustments</h2>
-    <form method="post" class="form">
-      <input type="hidden" name="action" value="update_price">
-      <label>Product
-        <select name="product_id" required>
+  <section class="inventory-panel">
+    <h2>Inventory</h2>
+    <div class="inventory-overview">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Status</th>
+            <th>Price</th>
+            <th>Stock</th>
+            <th>Base price</th>
+            <th>Base stock</th>
+          </tr>
+        </thead>
+        <tbody>
           {% for product in products %}
-            <option value="{{ product.id }}">{{ product.name }}</option>
+            <tr>
+              <td>{{ product.name }}</td>
+              <td>
+                {% if product.enabled %}
+                  <span class="status-pill status-on">Enabled</span>
+                {% else %}
+                  <span class="status-pill status-off">Disabled</span>
+                {% endif %}
+              </td>
+              <td>{{ '%.2f'|format(product.price) }}</td>
+              <td>{{ product.stock }}</td>
+              <td>{% if product.base_price is not none %}{{ '%.2f'|format(product.base_price) }}{% else %}—{% endif %}</td>
+              <td>{% if product.base_stock is not none %}{{ product.base_stock }}{% else %}—{% endif %}</td>
+            </tr>
           {% endfor %}
-        </select>
-      </label>
-      <label>New price<input type="number" step="0.01" name="price" required></label>
-      <button class="button" type="submit">Update price</button>
-    </form>
-    <form method="post" class="form">
-      <input type="hidden" name="action" value="update_stock">
-      <label>Product
-        <select name="product_id" required>
-          {% for product in products %}
-            <option value="{{ product.id }}">{{ product.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>New stock<input type="number" name="stock" min="0" required></label>
-      <button class="button" type="submit">Update stock</button>
-    </form>
-    <form method="post" class="form">
-      <input type="hidden" name="action" value="update_product_increase_pct">
-      <label>Product
-        <select name="product_id" required>
-          {% for product in products %}
-            <option value="{{ product.id }}">{{ product.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Per-product price increase (%)
-        <input type="number" step="0.1" name="increase_pct" min="0">
-      </label>
-      <button class="button" type="submit">Save per-product sensitivity</button>
-    </form>
-  </article>
-  {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div class="inventory-actions">
+      <article class="panel">
+        <h3>Update price</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="action" value="update_price">
+          <label>Product
+            <select name="product_id" required>
+              {% for product in products %}
+                <option value="{{ product.id }}">{{ product.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>New price
+            <input type="number" name="price" step="0.01" min="0" required>
+          </label>
+          <button class="button" type="submit">Save price</button>
+        </form>
+      </article>
+      <article class="panel">
+        <h3>Adjust stock</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="action" value="update_stock">
+          <label>Product
+            <select name="product_id" required>
+              {% for product in products %}
+                <option value="{{ product.id }}">{{ product.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>New stock
+            <input type="number" name="stock" min="0" required>
+          </label>
+          <button class="button" type="submit">Save stock</button>
+        </form>
+      </article>
+      <article class="panel">
+        <h3>Price sensitivity</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="action" value="update_product_increase_pct">
+          <label>Product
+            <select name="product_id" required>
+              {% for product in products %}
+                <option value="{{ product.id }}">{{ product.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Per-order increase (%)
+            <input type="number" step="0.1" min="0" name="increase_pct">
+          </label>
+          <button class="button" type="submit">Save sensitivity</button>
+        </form>
+      </article>
+    </div>
+  </section>
 </section>
 {% endblock %}

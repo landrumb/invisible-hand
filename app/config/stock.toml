@@ -1,0 +1,25 @@
+[[items]]
+key = "espresso"
+name = "Espresso"
+price = 4.50
+stock = 20
+enabled = true
+description = "A double shot of rocket fuel to keep you playing."
+image = "https://images.unsplash.com/photo-1511920170033-f8396924c348?w=400&auto=format&fit=crop&q=80"
+
+[[items]]
+key = "energy_bar"
+name = "Energy Bar"
+price = 3.00
+stock = 35
+enabled = true
+description = "Chocolate, caffeine, and mystery ingredients."
+image = "https://images.unsplash.com/photo-1589308078055-060c1c161b9d?w=400&auto=format&fit=crop&q=80"
+
+[[items]]
+key = "mystery_box"
+name = "Mystery Prize Box"
+price = 15.00
+stock = 5
+enabled = false
+description = "What's inside? Only the merchant knows."
