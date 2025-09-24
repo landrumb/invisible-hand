@@ -38,10 +38,12 @@
             <footer class="telestration-footer">
               <span class="muted">By {{ entry.contributor_prefix() }}</span>
               <span class="muted">{{ entry.upvote_count() }} upvote{{ '' if entry.upvote_count() == 1 else 's' }}</span>
-              <form method="post" action="{{ url_for('main.telestrations_upvote', entry_id=entry.id) }}">
-                {% set disabled = (entry.contributor_id == current_user.id) or (entry.id in voted_entries) %}
-                <button class="button small" type="submit" {% if disabled %}disabled{% endif %}>👍 Upvote</button>
-              </form>
+              {% if entry.contributor_id != current_user.id %}
+                <form method="post" action="{{ url_for('main.telestrations_upvote', entry_id=entry.id) }}">
+                  {% set already_voted = entry.id in voted_entries %}
+                  <button class="button small" type="submit" {% if already_voted %}disabled{% endif %}>👍 Upvote</button>
+                </form>
+              {% endif %}
             </footer>
           </li>
         {% endfor %}

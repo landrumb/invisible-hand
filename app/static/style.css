@@ -1865,3 +1865,82 @@ button.warning:hover {
   gap: 1rem;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
+
+/* Telestrations styles */
+.telestration-image {
+  max-width: 100%;
+  max-height: 400px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.telestration-preview .telestration-image {
+  max-height: 300px;
+}
+
+.telestration-entry {
+  margin-bottom: 1.5rem;
+}
+
+.telestration-entry-image .telestration-body {
+  text-align: center;
+}
+
+.telestration-sequence {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.telestration-entry {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.telestration-entry header {
+  margin-bottom: 0.75rem;
+  color: var(--accent);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.telestration-body {
+  margin-bottom: 0.75rem;
+}
+
+.telestration-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.85rem;
+}
+
+.telestration-footer form {
+  margin: 0;
+}
+
+.telestration-footer .button.small {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+  .telestration-image {
+    max-height: 250px;
+  }
+  
+  .telestration-preview .telestration-image {
+    max-height: 200px;
+  }
+}
