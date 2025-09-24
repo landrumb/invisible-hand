@@ -1668,42 +1668,84 @@ def _telestrations_storage_dir() -> Path:
     return base
 
 
+def _compress_image_to_jpeg(data: bytes, target_size_kb: int = 500) -> Tuple[bytes, str]:
+    """Convert any image format to compressed JPEG under target size.
+    
+    Args:
+        data: Raw image data bytes
+        target_size_kb: Target maximum file size in KB (default: 500KB)
+    
+    Returns:
+        Tuple of (compressed_jpeg_data, jpeg_mime_type)
+    """
+    try:
+        # Open the image from bytes
+        image = Image.open(io.BytesIO(data))
+        
+        # Convert to RGB if necessary (for transparency, CMYK, etc.)
+        if image.mode not in ('RGB', 'L'):
+            image = image.convert('RGB')
+        
+        # Start with high quality and reduce if needed
+        quality = 95
+        target_size_bytes = target_size_kb * 1024
+        
+        while quality > 20:  # Don't go below 20% quality
+            output_buffer = io.BytesIO()
+            image.save(output_buffer, format='JPEG', quality=quality, optimize=True)
+            
+            if output_buffer.tell() <= target_size_bytes:
+                output_buffer.seek(0)
+                return output_buffer.getvalue(), "image/jpeg"
+            
+            # Reduce quality and try again
+            quality -= 10
+        
+        # If still too large at minimum quality, resize the image
+        if output_buffer.tell() > target_size_bytes:
+            width, height = image.size
+            scale_factor = 0.8
+            
+            while output_buffer.tell() > target_size_bytes and scale_factor > 0.3:
+                new_width = int(width * scale_factor)
+                new_height = int(height * scale_factor)
+                resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                output_buffer = io.BytesIO()
+                resized_image.save(output_buffer, format='JPEG', quality=75, optimize=True)
+                
+                if output_buffer.tell() <= target_size_bytes:
+                    break
+                    
+                scale_factor -= 0.1
+        
+        output_buffer.seek(0)
+        return output_buffer.getvalue(), "image/jpeg"
+        
+    except Exception as e:
+        # If conversion fails, raise an exception to be handled by the caller
+        raise ValueError(f"Failed to compress image to JPEG: {str(e)}")
+
+
 def _convert_heic_to_jpeg(data: bytes) -> Tuple[bytes, str]:
     """Convert HEIC image data to JPEG format.
     
     Returns:
         Tuple of (converted_jpeg_data, jpeg_mime_type)
     """
-    try:
-        # Open the HEIC image from bytes
-        image = Image.open(io.BytesIO(data))
-        
-        # Convert to RGB if necessary (HEIC can have different color modes)
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        # Save as JPEG to a BytesIO buffer
-        output_buffer = io.BytesIO()
-        image.save(output_buffer, format='JPEG', quality=85, optimize=True)
-        output_buffer.seek(0)
-        
-        return output_buffer.getvalue(), "image/jpeg"
-    except Exception as e:
-        # If conversion fails, raise an exception to be handled by the caller
-        raise ValueError(f"Failed to convert HEIC image to JPEG: {str(e)}")
+    # Use the general compression function for HEIC files
+    return _compress_image_to_jpeg(data)
 
 
 def _store_telestration_image(data: bytes, mime_type: str, game_id: int, turn_index: int) -> str:
-    # Convert HEIC to JPEG if needed
-    if mime_type.lower() in ("image/heic", "image/heif"):
-        try:
-            data, mime_type = _convert_heic_to_jpeg(data)
-        except ValueError as e:
-            raise ValueError(f"Could not process HEIC image: {str(e)}")
+    # Compress all images to JPEG format under 500KB
+    try:
+        data, mime_type = _compress_image_to_jpeg(data)
+    except ValueError as e:
+        raise ValueError(f"Could not process image: {str(e)}")
     
-    extension = mimetypes.guess_extension(mime_type) or ".bin"
-    if extension == ".jpe":
-        extension = ".jpg"
+    # All images are now JPEG after compression
+    extension = ".jpg"
     token = secrets.token_hex(8)
     filename = f"{game_id:04d}-{turn_index:02d}-{token}{extension}"
     storage_path = _telestrations_storage_dir() / filename
@@ -1887,8 +1929,8 @@ def telestrations_play(game_id: int):
             if not data:
                 flash("We couldn't read that image. Try again.", "warning")
                 return redirect(url_for("main.telestrations_play", game_id=game.id))
-            if len(data) > 3_000_000:
-                flash("Images must be smaller than 3MB.", "warning")
+            if len(data) > 5_000_000:
+                flash("Images must be smaller than 5MB.", "warning")
                 return redirect(url_for("main.telestrations_play", game_id=game.id))
             mime_type = image_file.mimetype or "image/png"
             if not mime_type.lower().startswith("image/"):
@@ -1897,11 +1939,8 @@ def telestrations_play(game_id: int):
             
             try:
                 filename = _store_telestration_image(data, mime_type, game.id, next_turn)
-                # If HEIC was converted to JPEG, update the mime_type for the database
-                if mime_type.lower() in ("image/heic", "image/heif"):
-                    stored_mime_type = "image/jpeg"
-                else:
-                    stored_mime_type = mime_type
+                # All images are converted to JPEG during processing
+                stored_mime_type = "image/jpeg"
             except ValueError as e:
                 flash(f"Could not process the uploaded image: {str(e)}", "warning")
                 return redirect(url_for("main.telestrations_play", game_id=game.id))
