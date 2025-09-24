@@ -321,6 +321,8 @@
         : [];
       const resultPrize = payload.prize || null;
       const playerDelta = Number(payload.player_delta || 0);
+      const wagerAmount = Number(payload.wager || 0);
+      const totalWinnings = Number(payload.total_winnings || 0);
       const wins = Array.isArray(payload.wins) ? payload.wins : [];
       const stopDelay = 450;
 
@@ -348,32 +350,47 @@
         busy = false;
         applyWins(machine, wins);
         const gridSummary = describeGrid(reelResults);
-        const winDescriptions = wins.map(describeLine).filter(Boolean);
+        
         let variant = null;
         if (playerDelta > 0) {
           variant = 'is-win';
         } else if (playerDelta < 0) {
           variant = 'is-lose';
         }
-        const netText = Number.isFinite(playerDelta)
-          ? playerDelta > 0
-            ? `Won ${playerDelta.toFixed(2)} credits.`
-            : playerDelta === 0
-              ? 'Broke even.'
-              : `Lost ${Math.abs(playerDelta).toFixed(2)} credits.`
-          : '';
+
         const messageParts = [];
         if (gridSummary) {
           messageParts.push(gridSummary);
         }
-        if (winDescriptions.length) {
-          messageParts.push(`Lines: ${winDescriptions.join(' • ')}`);
+        
+        // Show wager amount
+        messageParts.push(`Wagered: ${wagerAmount.toFixed(2)} credits`);
+        
+        // Show detailed winnings breakdown if any
+        if (wins.length > 0) {
+          const winDetails = wins.map(win => 
+            `${win.payout.toFixed(2)} credits for ${win.prize.label} on ${describeLine(win)}`
+          ).filter(Boolean);
+          if (winDetails.length > 0) {
+            messageParts.push(`Won: ${winDetails.join(' • ')}`);
+          }
+          messageParts.push(`Total winnings: ${totalWinnings.toFixed(2)} credits`);
         } else {
-          messageParts.push('No line wins.');
+          messageParts.push('No wins');
         }
+        
+        // Show net result
+        const netText = Number.isFinite(playerDelta)
+          ? playerDelta > 0
+            ? `Net: +${playerDelta.toFixed(2)} credits`
+            : playerDelta === 0
+              ? 'Net: Broke even'
+              : `Net: ${playerDelta.toFixed(2)} credits`
+          : '';
         if (netText) {
           messageParts.push(netText);
         }
+        
         setStatus(statusEl, messageParts.join(' — '), variant);
       }
 

@@ -71,7 +71,7 @@ from .securities import (
 )
 from itsdangerous import BadSignature
 
-from .casino import get_casino_manager
+from .casino import get_casino_manager, SlotLineWin
 from .games import TriviaQuestion, get_games_manager
 from .telestrations import extract_seed_prompts
 
@@ -2290,14 +2290,28 @@ def play_slot():
     manager = get_casino_manager()
     try:
         result = manager.play_slot(slot_id, wager_value)
-        description = f"{result.machine.name} slot spin ({result.outcome})"
+        
+        # Record wager as separate transaction
+        wager_description = f"{result.machine.name} slot wager"
         record_transaction(
             current_user,
-            result.player_delta,
-            description,
+            -result.wager,
+            wager_description,
             type_="casino",
             commit=False,
         )
+        
+        # Record winnings as separate transaction if any
+        if result.total_winnings > 0:
+            winnings_description = f"{result.machine.name} slot winnings ({result.outcome})"
+            record_transaction(
+                current_user,
+                result.total_winnings,
+                winnings_description,
+                type_="casino",
+                commit=False,
+            )
+        
         db.session.commit()
         manager.publish_earnings_if_due()
 
@@ -2311,7 +2325,8 @@ def play_slot():
                 "reels": result.reels,
                 "outcome": result.outcome,
                 "player_delta": result.player_delta,
-                "wager": wager_value,
+                "wager": result.wager,
+                "total_winnings": result.total_winnings,
                 "balance": round(current_user.balance, 2),
             }
             if result.prize:
@@ -2325,27 +2340,25 @@ def play_slot():
             symbols = [result.reels[col][row] for col in range(len(result.reels))]
             row_strings.append(" ".join(symbols))
         reels_display = " / ".join(row_strings)
+        
+        # Create detailed winnings breakdown
         if result.wins:
-            wins_text = "Wins: " + ", ".join(
-                f"{_format_line_label(win)} ({win.prize.label})" for win in result.wins
-            )
+            win_details = []
+            for win in result.wins:
+                win_details.append(f"{win.payout:.2f} credits for {win.prize.label} on {_format_line_label(win)}")
+            wins_text = "Won: " + " • ".join(win_details)
         else:
-            wins_text = ""
+            wins_text = "No wins"
+        
         if result.player_delta > 0:
-            message = (
-                f"{description}: {reels_display} — You won {result.player_delta:.2f} credits! {wins_text}"
-            ).strip()
+            message = f"{result.machine.name} slot: {reels_display} — Wagered {result.wager:.2f}, {wins_text}. Net: +{result.player_delta:.2f} credits!"
             flash(message, "success")
         elif result.player_delta == 0:
-            message = (
-                f"{description}: {reels_display} — Broke even. {wins_text}"
-            ).strip()
+            message = f"{result.machine.name} slot: {reels_display} — Wagered {result.wager:.2f}, {wins_text}. Broke even."
             flash(message, "info")
         else:
-            flash(
-                f"{description}: {reels_display} — Lost {abs(result.player_delta):.2f} credits.",
-                "warning",
-            )
+            message = f"{result.machine.name} slot: {reels_display} — Wagered {result.wager:.2f}, {wins_text}. Net: {result.player_delta:.2f} credits."
+            flash(message, "warning")
     except ValueError as exc:
         db.session.rollback()
         manager.publish_earnings_if_due()
@@ -2355,7 +2368,7 @@ def play_slot():
     return redirect(url_for("main.casino"))
 
 
-def _format_line_label(win: "SlotLineWin") -> str:
+def _format_line_label(win: SlotLineWin) -> str:
     labels = {
         "row": ["Top row", "Middle row", "Bottom row"],
         "column": ["Left column", "Center column", "Right column"],

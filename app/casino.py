@@ -84,6 +84,8 @@ class SlotSpinResult:
     reels: List[List[str]]
     outcome: str
     player_delta: float
+    wager: float
+    total_winnings: float
     prize: Optional[SlotPrize] = None
     wins: Optional[List[SlotLineWin]] = None
 
@@ -370,10 +372,8 @@ class CasinoManager:
             wins = self._evaluate_slot_grid(reels, prize_lookup, wager)
 
         total_payout = sum(win.payout for win in wins)
-        if wins:
-            player_delta = round(total_payout - wager, 2)
-        else:
-            player_delta = round(-wager, 2)
+        total_winnings = round(total_payout, 2)
+        player_delta = round(total_payout - wager, 2)
 
         if player_delta > 0:
             outcome = "win"
@@ -389,6 +389,8 @@ class CasinoManager:
             reels=reels,
             outcome=outcome,
             player_delta=player_delta,
+            wager=wager,
+            total_winnings=total_winnings,
             prize=prize,
             wins=wins,
         )
