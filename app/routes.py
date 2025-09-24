@@ -8,7 +8,7 @@ import secrets
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import List, Optional, Sequence, Set, Tuple
 
 import tomllib
 
@@ -2651,8 +2651,6 @@ def marketplace():
         db.session.add(order)
         db.session.flush()
 
-        aggregated_adjustments: dict[int, dict[str, float]] = {}
-
         for product, quantity in selections:
             product.stock = max(0, (product.stock or 0) - quantity)
             line_prices, subtotal = pricing_breakdown.get(product.id, ([], 0.0))
@@ -2666,30 +2664,7 @@ def marketplace():
                 pricing_snapshot=[round(price, 4) for price in line_prices],
             )
             db.session.add(item)
-            changes = apply_economy_purchase_adjustments(product, quantity, commit=False)
-            for change in changes or []:
-                try:
-                    product_id = int(change.get("product_id"))
-                except (TypeError, ValueError):
-                    continue
-                if product_id <= 0:
-                    continue
-                record = aggregated_adjustments.get(product_id)
-                before = change.get("before")
-                after = change.get("after")
-                try:
-                    before_val = float(before)
-                    after_val = float(after)
-                except (TypeError, ValueError):
-                    continue
-                if record:
-                    record["after"] = after_val
-                else:
-                    aggregated_adjustments[product_id] = {
-                        "product_id": product_id,
-                        "before": before_val,
-                        "after": after_val,
-                    }
+            apply_economy_purchase_adjustments(product, quantity, commit=False)
 
         charge_txn = record_transaction(
             current_user,
@@ -2710,16 +2685,6 @@ def marketplace():
             category="order_receipt",
             payload={"order_id": order.id, "status": "pending", "total": total_cost},
         )
-
-        if aggregated_adjustments:
-            order.economy_adjustments = [
-                {
-                    "product_id": entry["product_id"],
-                    "before": entry["before"],
-                    "after": entry["after"],
-                }
-                for entry in aggregated_adjustments.values()
-            ]
 
         db.session.commit()
         flash("Order placed! We'll let you know when it's ready.", "success")
@@ -2789,12 +2754,19 @@ def merchant_portal():
             else:
                 order.status = "cancelled"
                 order.cancelled_at = datetime.utcnow()
+                sale_quantities: dict[int, tuple[Product, int]] = {}
                 for item in order.items:
                     item.product.stock = (item.product.stock or 0) + item.quantity
                     item.product.updated_at = datetime.utcnow()
-                if order.economy_adjustments:
-                    revert_economy_adjustments(order.economy_adjustments, commit=False)
-                    order.economy_adjustments = None
+                    key = int(item.product.id)
+                    existing = sale_quantities.get(key)
+                    if existing:
+                        sale_quantities[key] = (item.product, existing[1] + item.quantity)
+                    else:
+                        sale_quantities[key] = (item.product, item.quantity)
+                for product, quantity in sale_quantities.values():
+                    apply_economy_sale_adjustments(product, quantity, commit=False)
+                order.economy_adjustments = None
                 refund = record_transaction(
                     order.user,
                     order.total_price,
@@ -2909,18 +2881,20 @@ def apply_economy_purchase_adjustments(product: Product, quantity: int, *, commi
     return adjustments
 
 
-def revert_economy_adjustments(adjustments: Iterable[dict[str, float]], *, commit: bool = True):
+def apply_economy_sale_adjustments(product: Product, quantity: int, *, commit: bool = True):
     manager = get_economy_manager()
-    if not manager or not adjustments:
+    if not manager or quantity <= 0:
         if commit:
             db.session.commit()
-        return
+        return []
     try:
-        manager.reverse_adjustments(adjustments)
+        adjustments = manager.apply_sale(product, quantity)
     except Exception:
-        current_app.logger.exception("Failed to reverse economy adjustments")
+        current_app.logger.exception("Failed to apply sale adjustment via economy manager")
+        adjustments = []
     if commit:
         db.session.commit()
+    return adjustments
 
 
 def build_qr_for_user(user):

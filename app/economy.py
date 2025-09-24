@@ -214,7 +214,19 @@ class EconomyManager:
 
     # Pricing adjustments -------------------------------------------------
     def apply_purchase(self, product, quantity: int) -> list[dict[str, float]]:
+        return self._apply_price_flow(product, quantity, direction=1)
+
+    def apply_sale(self, product, quantity: int) -> list[dict[str, float]]:
+        return self._apply_price_flow(product, quantity, direction=-1)
+
+    def _apply_price_flow(
+        self, product, quantity: int, *, direction: int
+    ) -> list[dict[str, float]]:
         if quantity <= 0:
+            return []
+        direction = 1 if direction >= 0 else -1
+        steps = abs(int(quantity))
+        if steps <= 0:
             return []
         from .models import Product
 
@@ -227,7 +239,9 @@ class EconomyManager:
         ratio_inverse = _inverse_ratio(base_price or 1.0, liquidity)
         increase = pricing["purchase_impact"] * ratio_inverse
         increase = min(increase, 5.0)
-        factor = (1.0 + increase) ** quantity
+        step_factor = max(1e-6, 1.0 + increase)
+        exponent = steps if direction > 0 else -steps
+        factor = step_factor**exponent
         new_price = _clamp(base_price * factor, pricing["min_price"], pricing["max_price"])
         adjustments: dict[int, dict[str, float]] = {}
         if self._update_product_price(product, new_price):
@@ -248,13 +262,13 @@ class EconomyManager:
         for other in others:
             other_liq = self._product_liquidity(other, pricing)
             other_ratio_inverse = _inverse_ratio(other.price or 1.0, other_liq)
-            decrease = min(cross * quantity * other_ratio_inverse, 0.95)
-            factor = max(0.0, 1.0 - decrease)
-            new_value = _clamp(
-                (other.price or 0.0) * factor,
-                pricing["min_price"],
-                pricing["max_price"],
-            )
+            decrease = min(cross * steps * other_ratio_inverse, 0.95)
+            cross_factor = max(1e-6, 1.0 - decrease)
+            if direction > 0:
+                new_value = (other.price or 0.0) * cross_factor
+            else:
+                new_value = (other.price or 0.0) / cross_factor
+            new_value = _clamp(new_value, pricing["min_price"], pricing["max_price"])
             before_value = float(other.price or 0.0)
             if self._update_product_price(other, new_value):
                 key = int(getattr(other, "id", 0) or 0)
@@ -329,46 +343,6 @@ class EconomyManager:
         history = PriceHistory(product=product, price=new_price)
         db.session.add(history)
         return True
-
-    def reverse_adjustments(self, adjustments: Iterable[dict[str, float]]) -> None:
-        entries: dict[int, tuple[float, float]] = {}
-        for entry in adjustments or []:
-            try:
-                product_id = int(entry.get("product_id"))
-            except (TypeError, ValueError):
-                continue
-            if product_id <= 0:
-                continue
-            try:
-                before = float(entry.get("before"))
-                after = float(entry.get("after"))
-            except (TypeError, ValueError):
-                continue
-            if not math.isfinite(before) or not math.isfinite(after):
-                continue
-            entries[product_id] = (before, after)
-
-        if not entries:
-            return
-
-        from .models import Product
-
-        products = Product.query.filter(Product.id.in_(entries.keys())).all()
-        product_map = {product.id: product for product in products}
-
-        with self._lock:
-            self._load_config_locked()
-            pricing = self._config["pricing"]
-            for product_id, (before, after) in entries.items():
-                product = product_map.get(product_id)
-                if not product:
-                    continue
-                current = product.price or 0.0
-                if abs(after) < 1e-6:
-                    continue
-                factor = before / after
-                new_price = _clamp(current * factor, pricing["min_price"], pricing["max_price"])
-                self._update_product_price(product, new_price)
 
     # Game payout adjustments ---------------------------------------------
     def activate_game_context(self, key: str) -> float:
