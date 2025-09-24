@@ -99,6 +99,14 @@ def _clamp(value: float, minimum: float, maximum: float) -> float:
     return value
 
 
+@dataclass(frozen=True)
+class PurchaseQuoteContext:
+    first_price: float
+    step_factor: float
+    min_price: float
+    max_price: float
+
+
 @dataclass
 class EconomyManager:
     config_path: Path
@@ -242,9 +250,25 @@ class EconomyManager:
             )
             self._update_product_price(other, new_value)
 
+    def get_purchase_quote_context(self, product) -> PurchaseQuoteContext:
+        first_price, step_factor, min_price, max_price = self._purchase_quote_parameters(product)
+        return PurchaseQuoteContext(first_price=first_price, step_factor=step_factor, min_price=min_price, max_price=max_price)
+
     def quote_purchase_prices(self, product, quantity: int) -> list[float]:
         if quantity <= 0:
             return []
+        first_price, step_factor, min_price, max_price = self._purchase_quote_parameters(product)
+        current = first_price
+        prices: list[float] = []
+        for _ in range(quantity):
+            prices.append(round(current, 4))
+            next_price = _clamp(current * step_factor, min_price, max_price)
+            if not math.isfinite(next_price):
+                next_price = current
+            current = next_price
+        return prices
+
+    def _purchase_quote_parameters(self, product) -> tuple[float, float, float, float]:
         with self._lock:
             self._load_config_locked()
             pricing = self._config["pricing"]
@@ -252,15 +276,11 @@ class EconomyManager:
         base_price = max(product.price or 0.0, 0.0)
         ratio_inverse = _inverse_ratio(base_price or 1.0, liquidity)
         increase = min(pricing["purchase_impact"] * ratio_inverse, 5.0)
-        step_factor = 1.0 + increase
+        step_factor = max(0.0, 1.0 + increase)
         min_price = pricing["min_price"]
         max_price = pricing["max_price"]
-        current = _clamp(base_price, min_price, max_price)
-        prices: list[float] = []
-        for _ in range(quantity):
-            prices.append(round(current, 4))
-            current = _clamp(current * step_factor, min_price, max_price)
-        return prices
+        first_price = round(_clamp(base_price, min_price, max_price), 4)
+        return first_price, step_factor, min_price, max_price
 
     def _product_liquidity(self, product, pricing: dict) -> float:
         overrides = pricing.get("liquidity_overrides", {}) or {}

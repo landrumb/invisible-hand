@@ -33,7 +33,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from . import db, get_nyc_now, utc_to_nyc, nyc_to_utc, format_nyc_datetime
-from .economy import get_economy_manager
+from .economy import PurchaseQuoteContext, get_economy_manager
 from .models import (
     FutureHolding,
     FutureListing,
@@ -2569,6 +2569,24 @@ def marketplace():
     product_map = {product.id: product for product in products}
     visible_products = [product for product in products if product.enabled]
     economy_manager = get_economy_manager()
+    pricing_context: dict[int, PurchaseQuoteContext] = {}
+    for product in visible_products:
+        quote_ctx: PurchaseQuoteContext | None = None
+        if economy_manager:
+            try:
+                quote_ctx = economy_manager.get_purchase_quote_context(product)
+            except Exception:
+                current_app.logger.exception("Failed to compute purchase quote context", extra={"product_id": product.id})
+        if quote_ctx is None:
+            base_price = round(max(product.price or 0.0, 0.0), 4)
+            max_price = base_price if base_price > 0 else 0.0
+            quote_ctx = PurchaseQuoteContext(
+                first_price=base_price,
+                step_factor=1.0,
+                min_price=0.0,
+                max_price=max(base_price, max_price),
+            )
+        pricing_context[product.id] = quote_ctx
 
     if request.method == "POST":
         cart_raw = request.form.get("cart", "[]")
@@ -2672,7 +2690,7 @@ def marketplace():
         flash("Order placed! We'll let you know when it's ready.", "success")
         return redirect(url_for("main.marketplace"))
 
-    return render_template("marketplace.html", products=visible_products)
+    return render_template("marketplace.html", products=visible_products, pricing_context=pricing_context)
 
 
 @bp.route("/merchant", methods=["GET", "POST"])

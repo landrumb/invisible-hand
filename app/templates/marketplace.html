@@ -9,13 +9,23 @@
   <form id="marketplace-form" method="post" class="marketplace-form">
     <div class="product-grid">
       {% for product in products %}
-        <article class="product-card" data-product-id="{{ product.id }}" data-price="{{ '%.2f'|format(product.price) }}">
+        {% set quote = pricing_context.get(product.id) %}
+        {% set base_price = quote.first_price if quote else product.price %}
+        {% set step_factor = quote.step_factor if quote else 1.0 %}
+        {% set min_price = quote.min_price if quote else 0.0 %}
+        {% set max_price = quote.max_price if quote else base_price %}
+        <article class="product-card"
+                 data-product-id="{{ product.id }}"
+                 data-base-price="{{ '%.4f'|format(base_price) }}"
+                 data-step-factor="{{ '%.12f'|format(step_factor) }}"
+                 data-min-price="{{ '%.4f'|format(min_price) }}"
+                 data-max-price="{{ '%.4f'|format(max_price) }}">
           {% if product.image_url %}
             <img src="{{ product.image_url }}" alt="{{ product.name }}" class="product-image">
           {% endif %}
           <div class="product-body">
             <h3 class="product-name">{{ product.name }}</h3>
-            <p class="product-price">{{ '%.2f'|format(product.price) }} credits</p>
+            <p class="product-price">{{ '%.2f'|format(base_price) }} credits</p>
             {% if product.description %}
               <p class="product-description">{{ product.description }}</p>
             {% endif %}
@@ -51,6 +61,58 @@
     const countSpan = document.getElementById('checkout-count');
     const checkoutButton = document.getElementById('checkout-button');
 
+    function clamp(value, min, max) {
+      if (!Number.isFinite(value)) {
+        return min;
+      }
+      if (!Number.isFinite(min)) {
+        min = value;
+      }
+      if (!Number.isFinite(max)) {
+        max = min;
+      }
+      if (max < min) {
+        max = min;
+      }
+      if (value < min) {
+        return min;
+      }
+      if (value > max) {
+        return max;
+      }
+      return value;
+    }
+
+    function computeLinePricing(basePrice, stepFactor, minPrice, maxPrice, quantity) {
+      if (!Number.isFinite(basePrice)) {
+        basePrice = 0;
+      }
+      if (!Number.isFinite(stepFactor) || stepFactor <= 0) {
+        stepFactor = 1;
+      }
+      if (!Number.isFinite(minPrice)) {
+        minPrice = 0;
+      }
+      if (!Number.isFinite(maxPrice)) {
+        maxPrice = minPrice;
+      }
+      if (maxPrice < minPrice) {
+        maxPrice = minPrice;
+      }
+      let subtotal = 0;
+      let current = clamp(basePrice, minPrice, maxPrice);
+      for (let i = 0; i < quantity; i += 1) {
+        subtotal += current;
+        const multiplied = current * stepFactor;
+        let nextPrice = clamp(multiplied, minPrice, maxPrice);
+        if (!Number.isFinite(nextPrice)) {
+          nextPrice = current;
+        }
+        current = nextPrice;
+      }
+      return { subtotal, nextPrice: current };
+    }
+
     function refreshCartSummary() {
       let total = 0;
       let count = 0;
@@ -58,9 +120,17 @@
       for (const card of cards) {
         const input = card.querySelector('.qty-input');
         const quantity = parseInt(input.value, 10) || 0;
+        const priceLabel = card.querySelector('.product-price');
+        const basePrice = parseFloat(card.dataset.basePrice);
+        const stepFactor = parseFloat(card.dataset.stepFactor);
+        const minPrice = parseFloat(card.dataset.minPrice);
+        const maxPrice = parseFloat(card.dataset.maxPrice);
+        const { subtotal, nextPrice } = computeLinePricing(basePrice, stepFactor, minPrice, maxPrice, quantity);
+        if (priceLabel) {
+          priceLabel.textContent = `${nextPrice.toFixed(2)} credits`;
+        }
         if (quantity > 0) {
-          const price = parseFloat(card.dataset.price);
-          total += price * quantity;
+          total += subtotal;
           count += quantity;
           items.push({ id: parseInt(card.dataset.productId, 10), quantity });
           card.classList.add('selected');
