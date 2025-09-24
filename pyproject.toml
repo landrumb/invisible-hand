@@ -18,7 +18,6 @@ dependencies = [
   "pillow-heif>=0.10.0",
   "Werkzeug<3",
   "python-dotenv>=1.1.1",
-  "alembic>=1.16.5",
 ]
 
 [build-system]
