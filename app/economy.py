@@ -213,10 +213,10 @@ class EconomyManager:
             self._write_config_locked()
 
     # Pricing adjustments -------------------------------------------------
-    def apply_purchase(self, product, quantity: int) -> None:
+    def apply_purchase(self, product, quantity: int) -> list[dict[str, float]]:
         if quantity <= 0:
-            return
-        from .models import PriceHistory, Product
+            return []
+        from .models import Product
 
         with self._lock:
             self._load_config_locked()
@@ -229,11 +229,18 @@ class EconomyManager:
         increase = min(increase, 5.0)
         factor = (1.0 + increase) ** quantity
         new_price = _clamp(base_price * factor, pricing["min_price"], pricing["max_price"])
-        self._update_product_price(product, new_price)
+        adjustments: dict[int, dict[str, float]] = {}
+        if self._update_product_price(product, new_price):
+            product_id = int(getattr(product, "id", 0) or 0)
+            adjustments[product_id] = {
+                "product_id": product_id,
+                "before": float(base_price),
+                "after": float(new_price),
+            }
 
         cross = pricing.get("cross_cooling", 0.0)
         if cross <= 0:
-            return
+            return list(adjustments.values())
 
         others: Iterable[Product] = (
             Product.query.filter(Product.id != product.id, Product.enabled.is_(True)).all()
@@ -248,7 +255,20 @@ class EconomyManager:
                 pricing["min_price"],
                 pricing["max_price"],
             )
-            self._update_product_price(other, new_value)
+            before_value = float(other.price or 0.0)
+            if self._update_product_price(other, new_value):
+                key = int(getattr(other, "id", 0) or 0)
+                entry = adjustments.get(key)
+                if entry:
+                    entry["after"] = float(new_value)
+                else:
+                    adjustments[key] = {
+                        "product_id": key,
+                        "before": before_value,
+                        "after": float(new_value),
+                    }
+
+        return list(adjustments.values())
 
     def get_purchase_quote_context(self, product) -> PurchaseQuoteContext:
         first_price, step_factor, min_price, max_price = self._purchase_quote_parameters(product)
@@ -296,18 +316,59 @@ class EconomyManager:
             return float(base_stock)
         return float(pricing.get("default_liquidity", 1.0))
 
-    def _update_product_price(self, product, new_price: float) -> None:
+    def _update_product_price(self, product, new_price: float) -> bool:
         if not math.isfinite(new_price):
-            return
+            return False
         current = product.price or 0.0
         if abs(current - new_price) < 1e-4:
-            return
+            return False
         from .models import PriceHistory
 
         product.price = new_price
         product.updated_at = datetime.utcnow()
         history = PriceHistory(product=product, price=new_price)
         db.session.add(history)
+        return True
+
+    def reverse_adjustments(self, adjustments: Iterable[dict[str, float]]) -> None:
+        entries: dict[int, tuple[float, float]] = {}
+        for entry in adjustments or []:
+            try:
+                product_id = int(entry.get("product_id"))
+            except (TypeError, ValueError):
+                continue
+            if product_id <= 0:
+                continue
+            try:
+                before = float(entry.get("before"))
+                after = float(entry.get("after"))
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(before) or not math.isfinite(after):
+                continue
+            entries[product_id] = (before, after)
+
+        if not entries:
+            return
+
+        from .models import Product
+
+        products = Product.query.filter(Product.id.in_(entries.keys())).all()
+        product_map = {product.id: product for product in products}
+
+        with self._lock:
+            self._load_config_locked()
+            pricing = self._config["pricing"]
+            for product_id, (before, after) in entries.items():
+                product = product_map.get(product_id)
+                if not product:
+                    continue
+                current = product.price or 0.0
+                if abs(after) < 1e-6:
+                    continue
+                factor = before / after
+                new_price = _clamp(current * factor, pricing["min_price"], pricing["max_price"])
+                self._update_product_price(product, new_price)
 
     # Game payout adjustments ---------------------------------------------
     def activate_game_context(self, key: str) -> float:
