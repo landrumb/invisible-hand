@@ -16,7 +16,7 @@
     <h2>Start a New Chain</h2>
     {% if active_game %}
       <p class="muted">
-        You started a game on {{ active_game.created_at.strftime('%Y-%m-%d %H:%M') }} that is still waiting for turns.
+        You started a game on {{ format_nyc_datetime(active_game.created_at) }} that is still waiting for turns.
         <a href="{{ url_for('main.telestrations_play', game_id=active_game.id) }}">Check in on it</a>.
       </p>
     {% else %}

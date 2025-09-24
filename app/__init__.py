@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
@@ -10,6 +11,42 @@ from authlib.integrations.flask_client import OAuth
 db = SQLAlchemy()
 login_manager = LoginManager()
 oauth = OAuth()
+
+# NYC timezone
+NYC_TZ = ZoneInfo("America/New_York")
+
+
+def get_nyc_now():
+    """Get current time in NYC timezone."""
+    return datetime.now(NYC_TZ)
+
+
+def utc_to_nyc(utc_dt):
+    """Convert UTC datetime to NYC timezone."""
+    if utc_dt is None:
+        return None
+    if utc_dt.tzinfo is None:
+        # Assume UTC if no timezone info
+        utc_dt = utc_dt.replace(tzinfo=ZoneInfo("UTC"))
+    return utc_dt.astimezone(NYC_TZ)
+
+
+def nyc_to_utc(nyc_dt):
+    """Convert NYC datetime to UTC timezone."""
+    if nyc_dt is None:
+        return None
+    if nyc_dt.tzinfo is None:
+        # Assume NYC timezone if no timezone info
+        nyc_dt = nyc_dt.replace(tzinfo=NYC_TZ)
+    return nyc_dt.astimezone(ZoneInfo("UTC"))
+
+
+def format_nyc_datetime(dt, format_str="%Y-%m-%d %H:%M"):
+    """Format datetime in NYC timezone."""
+    if dt is None:
+        return "—"
+    nyc_dt = utc_to_nyc(dt)
+    return nyc_dt.strftime(format_str)
 
 
 def create_app(test_config=None):
@@ -72,7 +109,14 @@ def create_app(test_config=None):
 
     @app.context_processor
     def inject_now():
-        return {"now": datetime.utcnow()}
+        return {"now": get_nyc_now()}
+
+    @app.context_processor
+    def inject_timezone_utils():
+        return {
+            "format_nyc_datetime": format_nyc_datetime,
+            "utc_to_nyc": utc_to_nyc,
+        }
 
     @app.context_processor
     def inject_request():

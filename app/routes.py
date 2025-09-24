@@ -32,7 +32,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
-from . import db
+from . import db, get_nyc_now, utc_to_nyc, nyc_to_utc, format_nyc_datetime
 from .models import (
     FutureHolding,
     FutureListing,
@@ -486,7 +486,7 @@ def _build_candles(symbol: str, window: timedelta = timedelta(hours=2)):
         data = buckets[ts]
         ordered.append(
             {
-                "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "timestamp": utc_to_nyc(ts).isoformat(),
                 "open": data["open"],
                 "high": data["high"],
                 "low": data["low"],
@@ -498,7 +498,7 @@ def _build_candles(symbol: str, window: timedelta = timedelta(hours=2)):
         entry = history[-1]
         ordered.append(
             {
-                "timestamp": entry.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "timestamp": utc_to_nyc(entry.timestamp).isoformat(),
                 "open": entry.price,
                 "high": entry.price,
                 "low": entry.price,
@@ -805,7 +805,7 @@ def security_details(symbol):
                 "option_type": listing.option_type.value,
                 "strike": listing.strike,
                 "minutes_left": minutes_left,
-                "expiration_display": listing.expiration.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "expiration_display": format_nyc_datetime(listing.expiration, "%Y-%m-%d %H:%M:%S ET"),
                 "premium": simulator.price_option(listing),
                 "holding": (
                     {
@@ -845,7 +845,7 @@ def security_details(symbol):
                 "id": listing.id,
                 "contract": f"{listing.security_symbol} FUT",
                 "minutes_left": minutes_left,
-                "delivery_display": listing.delivery_date.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "delivery_display": format_nyc_datetime(listing.delivery_date, "%Y-%m-%d %H:%M:%S ET"),
                 "forward": simulator.price_future(listing),
                 "holding": (
                     {
@@ -1107,7 +1107,7 @@ def _handle_timed_math_game(game, manager):
     b = random.randint(10, 99)
     start_ts = time.time()
     token = manager.create_token({"game": game.key, "a": a, "b": b, "start": start_ts})
-    started_at = datetime.utcfromtimestamp(start_ts).strftime("%H:%M:%S UTC")
+    started_at = utc_to_nyc(datetime.utcfromtimestamp(start_ts)).strftime("%H:%M:%S ET")
     return render_template(
         "games/timed_math.html",
         game=game,
@@ -2954,7 +2954,7 @@ def admin_dashboard():
     casino_status = casino_manager.get_status()
 
     # Prepare defaults/preserved values for the shareholder vote form
-    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+    now_str = get_nyc_now().strftime("%Y-%m-%dT%H:%M")
     preserved_form = session.pop("vote_form", None) or {}
     vote_defaults = {
         "security_symbol": preserved_form.get("security_symbol", ""),
@@ -3118,7 +3118,9 @@ def create_shareholder_vote():
         return redirect(url_for("main.admin_dashboard"))
 
     try:
-        deadline = datetime.strptime(deadline_raw, "%Y-%m-%dT%H:%M")
+        # Parse as NYC time, then convert to UTC for storage
+        deadline_nyc = datetime.strptime(deadline_raw, "%Y-%m-%dT%H:%M")
+        deadline = nyc_to_utc(deadline_nyc).replace(tzinfo=None)  # Store as naive UTC
     except ValueError:
         flash("Please provide a valid deadline.", "error")
         session["vote_form"] = form_snapshot

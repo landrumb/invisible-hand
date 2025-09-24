@@ -62,7 +62,7 @@
     <ul class="list">
       {% for txn in transactions %}
         <li>
-          <span>{{ txn.created_at.strftime('%H:%M:%S') }}</span>
+          <span>{{ format_nyc_datetime(txn.created_at, '%H:%M:%S') }}</span>
           <span>{{ txn.description }}</span>
           <span class="amount {{ 'positive' if txn.amount >= 0 else 'negative' }}">{{ '%.2f'|format(txn.amount) }}</span>
         </li>
@@ -79,7 +79,7 @@
           <div class="request-item">
             <header>
               <strong>{{ req.requester.name }}</strong>
-              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              <span>{{ format_nyc_datetime(req.created_at) }}</span>
             </header>
             <p class="muted">requested <strong>{{ '%.2f'|format(req.amount) }}</strong> credits</p>
             {% if req.message %}
@@ -110,7 +110,7 @@
           <div class="request-item">
             <header>
               <strong>{{ req.target.name }}</strong>
-              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              <span>{{ format_nyc_datetime(req.created_at) }}</span>
             </header>
             <p class="muted">asked for <strong>{{ '%.2f'|format(req.amount) }}</strong> credits</p>
             {% if req.message %}

@@ -13,7 +13,7 @@
             <header>
               <div>
                 <strong>{{ alert.creator.name if alert.creator else 'Admin' }}</strong>
-                <span class="muted">{{ alert.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                <span class="muted">{{ format_nyc_datetime(alert.created_at) }}</span>
               </div>
               {% if alert.title %}
                 <h3>{{ alert.title }}</h3>
@@ -58,7 +58,7 @@
               </p>
             {% endif %}
             {% if receipt.read_at %}
-              <span class="muted">Read {{ receipt.read_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              <span class="muted">Read {{ format_nyc_datetime(receipt.read_at) }}</span>
             {% else %}
               <span class="muted">New</span>
             {% endif %}
@@ -77,7 +77,7 @@
           <li>
             <header>
               <strong>{{ req.requester.name }}</strong>
-              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              <span>{{ format_nyc_datetime(req.created_at) }}</span>
             </header>
             <p>Requested <strong>{{ '%.2f'|format(req.amount) }}</strong> credits.</p>
             {% if req.message %}
@@ -99,7 +99,7 @@
           <li>
             <header>
               <strong>{{ req.target.name }}</strong>
-              <span>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              <span>{{ format_nyc_datetime(req.created_at) }}</span>
             </header>
             <p>Asked for <strong>{{ '%.2f'|format(req.amount) }}</strong> credits.</p>
             {% if req.message %}

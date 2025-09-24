@@ -17,7 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - defensive fallback
 from flask import current_app, has_app_context
 from sqlalchemy.orm import joinedload
 
-from . import db
+from . import db, get_nyc_now
 from .models import AppSetting, Security, SecurityHolding, Transaction, User
 
 

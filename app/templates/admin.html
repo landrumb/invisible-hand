@@ -29,7 +29,7 @@
     <ul class="list" id="txn-feed">
       {% for txn in transactions %}
         <li data-id="{{ txn.id }}">
-          <span>{{ txn.created_at.strftime('%H:%M:%S') }}</span>
+          <span>{{ format_nyc_datetime(txn.created_at, '%H:%M:%S') }}</span>
           <span>{{ txn.user.name }} — {{ txn.description }}</span>
           <span class="amount {{ 'positive' if txn.amount >= 0 else 'negative' }}">{{ '%.2f'|format(txn.amount) }}</span>
         </li>
@@ -44,8 +44,8 @@
     {% set status = casino_status or {} %}
     <ul class="list">
       <li>Pending profit: {{ '%.2f'|format(status.get('pending_profit', 0.0) or 0.0) }} credits</li>
-      <li>Last publication: {{ status.get('last_publish_at').strftime('%Y-%m-%d %H:%M:%S') if status.get('last_publish_at') else 'Never' }}</li>
-      <li>Next scheduled: {{ status.get('next_publish_at').strftime('%Y-%m-%d %H:%M:%S') if status.get('next_publish_at') else 'Pending' }}</li>
+      <li>Last publication: {{ format_nyc_datetime(status.get('last_publish_at'), '%Y-%m-%d %H:%M:%S') if status.get('last_publish_at') else 'Never' }}</li>
+      <li>Next scheduled: {{ format_nyc_datetime(status.get('next_publish_at'), '%Y-%m-%d %H:%M:%S') if status.get('next_publish_at') else 'Pending' }}</li>
       <li>Last summary: {{ status.get('last_summary') or 'No publication yet.' }}</li>
     </ul>
     <form method="post" action="{{ url_for('main.admin_casino_publish') }}" class="form">
@@ -159,7 +159,7 @@
           {% for vote in open_votes %}
             <li>
               <strong>{{ vote.title }}</strong>
-              <span class="muted">{{ vote.security_symbol }} · closes {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }}</span>
+              <span class="muted">{{ vote.security_symbol }} · closes {{ format_nyc_datetime(vote.deadline) }}</span>
               <a class="button secondary" href="{{ url_for('main.view_shareholder_vote', vote_id=vote.id) }}">View vote</a>
             </li>
           {% else %}
@@ -174,9 +174,9 @@
             <li>
               <strong>{{ vote.title }}</strong>
               {% if vote.finalized_at %}
-                <span class="muted">Closed {{ vote.finalized_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                <span class="muted">Closed {{ format_nyc_datetime(vote.finalized_at) }}</span>
               {% else %}
-                <span class="muted">Open · closes {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }}</span>
+                <span class="muted">Open · closes {{ format_nyc_datetime(vote.deadline) }}</span>
               {% endif %}
               <a class="button secondary" href="{{ url_for('main.view_shareholder_vote', vote_id=vote.id) }}">Details</a>
             </li>
@@ -193,7 +193,7 @@
     <ul class="list">
       {% for alert in alerts %}
         <li>
-          <span>{{ alert.created_at.strftime('%H:%M:%S') }}</span>
+          <span>{{ format_nyc_datetime(alert.created_at, '%H:%M:%S') }}</span>
           <span>{{ alert.creator.name if alert.creator else 'Admin' }} — {{ alert.title or alert.message }}</span>
         </li>
       {% else %}

@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 
 from flask import current_app, has_app_context
 
-from . import db
+from . import db, get_nyc_now
 from .models import (
     FutureHolding,
     FutureListing,

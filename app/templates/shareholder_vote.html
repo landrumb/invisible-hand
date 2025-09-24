@@ -4,12 +4,12 @@
 <section class="grid">
   <article class="panel wide vote-detail">
     <h1>{{ vote.title }}</h1>
-    <p class="muted">Security {{ vote.security_symbol }} · Created {{ vote.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    <p class="muted">Security {{ vote.security_symbol }} · Created {{ format_nyc_datetime(vote.created_at) }}</p>
     <div class="vote-message">{{ vote.message | replace('\n', '<br>') | safe }}</div>
     {% if voting_open %}
-      <p class="note">Voting closes at {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }} UTC.</p>
+      <p class="note">Voting closes at {{ format_nyc_datetime(vote.deadline) }} ET.</p>
     {% else %}
-      <p class="note">Voting closed {{ vote.deadline.strftime('%Y-%m-%d %H:%M') }} UTC.</p>
+      <p class="note">Voting closed {{ format_nyc_datetime(vote.deadline) }} ET.</p>
     {% endif %}
     <p class="muted">You currently hold {{ '%.2f'|format(current_shares) }} shares. Final weight is based on holdings at the deadline.</p>
 
