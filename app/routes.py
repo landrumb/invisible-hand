@@ -30,6 +30,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from . import db
 from .models import (
@@ -1651,7 +1652,13 @@ def _handle_telestrations_game(game, manager):
             if selection is None:
                 flash("No active telestrations games need your help right now. Check back soon!", "info")
             else:
-                return redirect(url_for("main.telestrations_play", game_id=selection.id))
+                # Double-check that the selected game is still active and user hasn't played
+                if (selection.is_active() and 
+                    not any(entry.contributor_id == current_user.id for entry in selection.entries)):
+                    return redirect(url_for("main.telestrations_play", game_id=selection.id))
+                else:
+                    # Game state changed, try again
+                    flash("Game state changed while selecting. Please try joining again.", "info")
         else:
             flash("We couldn't determine that action.", "warning")
 
@@ -2049,72 +2056,108 @@ def telestrations_play(game_id: int):
             flash("This round can't accept another contribution from you.", "warning")
             return redirect(url_for("main.play_game", game_key="telestrations"))
 
-        next_turn = game.turns_taken + 1
-        new_entry: Optional[TelestrationEntry] = None
-        if expected_type == "description":
-            description = (request.form.get("description") or "").strip()
-            if not description:
-                flash("Add a brief description before submitting.", "warning")
-                return redirect(url_for("main.telestrations_play", game_id=game.id))
-            new_entry = TelestrationEntry(
-                game=game,
-                contributor=current_user,
-                turn_index=next_turn,
-                entry_type="description",
-                text_content=description,
-            )
-        else:
-            image_file = request.files.get("image")
-            if image_file is None or not image_file.filename:
-                flash("Upload a quick sketch or snapshot for this clue.", "warning")
-                return redirect(url_for("main.telestrations_play", game_id=game.id))
-            data = image_file.read()
-            if not data:
-                flash("We couldn't read that image. Try again.", "warning")
-                return redirect(url_for("main.telestrations_play", game_id=game.id))
-            if len(data) > 5_000_000:
-                flash("Images must be smaller than 5MB.", "warning")
-                return redirect(url_for("main.telestrations_play", game_id=game.id))
-            mime_type = image_file.mimetype or "image/png"
-            if not mime_type.lower().startswith("image/"):
-                flash("Only image uploads are supported for telestrations rounds.", "warning")
-                return redirect(url_for("main.telestrations_play", game_id=game.id))
+        # Use SELECT FOR UPDATE to lock the game row and prevent race conditions
+        try:
+            locked_game = TelestrationGame.query.with_for_update().get(game_id)
+            if locked_game is None:
+                flash("Game not found.", "error")
+                return redirect(url_for("main.play_game", game_key="telestrations"))
             
-            try:
-                filename = _store_telestration_image(data, mime_type, game.id, next_turn)
-                # All images are converted to JPEG during processing
-                stored_mime_type = "image/jpeg"
-            except ValueError as e:
-                flash(f"Could not process the uploaded image: {str(e)}", "warning")
-                return redirect(url_for("main.telestrations_play", game_id=game.id))
+            # Re-check if game is still active after locking
+            if not locked_game.is_active():
+                flash("This game has already been completed.", "info")
+                return redirect(url_for("main.telestrations_hall_of_fame"))
             
-            new_entry = TelestrationEntry(
-                game=game,
-                contributor=current_user,
-                turn_index=next_turn,
-                entry_type="image",
-                image_filename=filename,
-                image_mime_type=stored_mime_type,
-            )
+            # Re-check if user has already played after locking
+            user_has_played_locked = any(entry.contributor_id == current_user.id for entry in locked_game.entries)
+            if user_has_played_locked:
+                flash("You have already contributed to this game.", "warning")
+                return redirect(url_for("main.play_game", game_key="telestrations"))
 
-        if new_entry is None:
-            flash("We couldn't record that move.", "error")
-            return redirect(url_for("main.telestrations_play", game_id=game.id))
+            next_turn = locked_game.turns_taken + 1
+            new_entry: Optional[TelestrationEntry] = None
+            
+            # Recalculate expected type based on locked game state
+            expected_type = "image" if locked_game.turns_taken % 2 == 1 else "description"
+            
+            if expected_type == "description":
+                description = (request.form.get("description") or "").strip()
+                if not description:
+                    flash("Add a brief description before submitting.", "warning")
+                    return redirect(url_for("main.telestrations_play", game_id=game.id))
+                new_entry = TelestrationEntry(
+                    game=locked_game,
+                    contributor=current_user,
+                    turn_index=next_turn,
+                    entry_type="description",
+                    text_content=description,
+                )
+            else:
+                image_file = request.files.get("image")
+                if image_file is None or not image_file.filename:
+                    flash("Upload a quick sketch or snapshot for this clue.", "warning")
+                    return redirect(url_for("main.telestrations_play", game_id=game.id))
+                data = image_file.read()
+                if not data:
+                    flash("We couldn't read that image. Try again.", "warning")
+                    return redirect(url_for("main.telestrations_play", game_id=game.id))
+                if len(data) > 5_000_000:
+                    flash("Images must be smaller than 5MB.", "warning")
+                    return redirect(url_for("main.telestrations_play", game_id=game.id))
+                mime_type = image_file.mimetype or "image/png"
+                if not mime_type.lower().startswith("image/"):
+                    flash("Only image uploads are supported for telestrations rounds.", "warning")
+                    return redirect(url_for("main.telestrations_play", game_id=game.id))
+                
+                try:
+                    filename = _store_telestration_image(data, mime_type, locked_game.id, next_turn)
+                    # All images are converted to JPEG during processing
+                    stored_mime_type = "image/jpeg"
+                except ValueError as e:
+                    flash(f"Could not process the uploaded image: {str(e)}", "warning")
+                    return redirect(url_for("main.telestrations_play", game_id=game.id))
+                
+                new_entry = TelestrationEntry(
+                    game=locked_game,
+                    contributor=current_user,
+                    turn_index=next_turn,
+                    entry_type="image",
+                    image_filename=filename,
+                    image_mime_type=stored_mime_type,
+                )
 
-        db.session.add(new_entry)
-        game.turns_taken = next_turn
-        finished = False
-        if game.turns_taken >= game.max_turns:
-            finished = True
-            game.completed_at = datetime.utcnow()
-        db.session.commit()
-        if finished:
-            _notify_telestration_completed(game)
+            if new_entry is None:
+                flash("We couldn't record that move.", "error")
+                return redirect(url_for("main.telestrations_play", game_id=game.id))
+
+            # Save the entry and update game state atomically
+            db.session.add(new_entry)
+            locked_game.turns_taken = next_turn
+            finished = False
+            if locked_game.turns_taken >= locked_game.max_turns:
+                finished = True
+                locked_game.completed_at = datetime.utcnow()
+            
             db.session.commit()
-            flash("That completed the chain! Everyone has been notified.", "success")
-            return redirect(url_for("main.telestrations_hall_of_fame"))
-        flash("Thanks for adding to the chain!", "success")
-        return redirect(url_for("main.play_game", game_key="telestrations"))
+            
+            if finished:
+                _notify_telestration_completed(locked_game)
+                db.session.commit()
+                flash("That completed the chain! Everyone has been notified.", "success")
+                return redirect(url_for("main.telestrations_hall_of_fame"))
+            flash("Thanks for adding to the chain!", "success")
+            return redirect(url_for("main.play_game", game_key="telestrations"))
+            
+        except IntegrityError:
+            # Handle the case where another user submitted the same turn
+            db.session.rollback()
+            flash("Someone else just submitted this turn. Please try another game.", "info")
+            return redirect(url_for("main.play_game", game_key="telestrations"))
+        except Exception as e:
+            # Handle any other database errors
+            db.session.rollback()
+            flash("An error occurred while saving your submission. Please try again.", "error")
+            return redirect(url_for("main.telestrations_play", game_id=game.id))
 
     turn_index = min(game.turns_taken + 1, game.max_turns)
     return render_template(
