@@ -1156,6 +1156,52 @@ button.warning:hover {
   margin-top: 0.4rem;
 }
 
+.player-selector {
+  position: relative;
+}
+
+.player-selector__dropdown {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  right: 0;
+  display: none;
+  background: #0f161d;
+  border: 1px solid rgba(26, 255, 213, 0.2);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 25;
+}
+
+.player-selector__dropdown.is-open {
+  display: block;
+}
+
+.player-selector__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.player-selector__option {
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.player-selector__option strong {
+  color: var(--accent);
+}
+
+.player-selector__option:hover,
+.player-selector__option.is-active {
+  background: rgba(26, 255, 213, 0.12);
+}
+
 .form textarea {
   width: 100%;
   padding: 0.5rem;

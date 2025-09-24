@@ -8,7 +8,7 @@ import secrets
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Sequence, Set, Tuple
 
 import tomllib
 
@@ -196,6 +196,23 @@ def sync_products_from_stock() -> List[Product]:
         db.session.commit()
 
     return Product.query.order_by(Product.name.asc()).all()
+
+
+def _build_player_directory(users: Optional[Sequence[User]] = None) -> list[dict[str, str]]:
+    if users is None:
+        users = (
+            User.query.filter(User.role == Role.PLAYER)
+            .order_by(User.name.asc())
+            .all()
+        )
+    directory: list[dict[str, str]] = []
+    for user in users:
+        role = user.role if isinstance(user.role, Role) else Role(user.role)
+        if role != Role.PLAYER:
+            continue
+        handle = user.email.split("@", 1)[0]
+        directory.append({"name": user.name, "handle": handle})
+    return directory
 
 
 def _merchant_sender() -> User:
@@ -553,6 +570,7 @@ def dashboard():
         incoming_requests=incoming_requests,
         outgoing_requests=outgoing_requests,
         qr_data_uri=build_qr_for_user(current_user),
+        player_directory=_build_player_directory(),
     )
 
 
@@ -2982,6 +3000,7 @@ def admin_dashboard():
         open_votes=open_votes,
         recent_votes=recent_votes,
         vote_defaults=vote_defaults,
+        player_directory=_build_player_directory(users),
     )
 
 

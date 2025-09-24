@@ -119,7 +119,9 @@
           <input type="radio" name="audience" value="handle">
           Specific handle
         </label>
-        <input type="text" name="target_handle" placeholder="player-handle" />
+        <div class="player-selector" data-player-selector>
+          <input type="text" name="target_handle" placeholder="player-handle" />
+        </div>
       </fieldset>
       <button class="button" type="submit">Send alert</button>
     </form>
@@ -242,4 +244,11 @@ async function refreshTransactions() {
 }
 setInterval(refreshTransactions, 5000);
 </script>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script>
+    window.PLAYER_DIRECTORY = {{ player_directory|tojson }};
+  </script>
 {% endblock %}

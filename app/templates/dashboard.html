@@ -20,8 +20,10 @@
     <form class="form" method="post" action="{{ url_for('main.handle_transfer') }}">
       <input type="hidden" name="action" value="send" />
       <label>
-        Recipient handle
-        <input type="text" name="handle" value="{{ target_handle }}" placeholder="friend" required />
+        Recipient
+        <div class="player-selector" data-player-selector>
+          <input type="text" name="handle" value="{{ target_handle }}" placeholder="friend" required />
+        </div>
       </label>
       <label>
         Amount
@@ -41,8 +43,10 @@
     <form class="form" method="post" action="{{ url_for('main.handle_transfer') }}">
       <input type="hidden" name="action" value="request" />
       <label>
-        From handle
-        <input type="text" name="handle" value="{{ target_handle }}" placeholder="merchant" required />
+        From
+        <div class="player-selector" data-player-selector>
+          <input type="text" name="handle" value="{{ target_handle }}" placeholder="merchant" required />
+        </div>
       </label>
       <label>
         Amount
@@ -135,4 +139,11 @@
     </article>
   {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script>
+    window.PLAYER_DIRECTORY = {{ player_directory|tojson }};
+  </script>
 {% endblock %}
